@@ -19,7 +19,7 @@ Durations are indicative only, assuming a team of about four (two Go backend, on
 | Item | Output |
 |---|---|
 | Repository layout | Go module (`api`, `worker` entry points), React/TS frontend, Malloy compile sidecar, `deploy/` |
-| Development environment | Docker Compose: development data mart, application PostgreSQL, Keycloak + Kiban v0.1.2 seeded with two companies, SeaweedFS (optional until exports) |
+| Development environment | Docker Compose: development data mart, application PostgreSQL, Keycloak + Kiban v0.1.2 seeded with two companies, SeaweedFS (optional until exports). Done except SeaweedFS: `dev/README.md` |
 | Development data mart | Deterministic star-schema seed with hand-verified expected results and deliberate traps (§14). Done: `dev/mart/` |
 | CI | Build, test, lint, dependency licence report that fails on non-allowlisted licences |
 

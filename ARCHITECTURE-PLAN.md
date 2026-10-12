@@ -305,6 +305,7 @@ The following reflects the team's supplied response, not independently verified 
 8. **Company modeling (decided: multi-company from the start):** Hareno assumes multiple Kiban companies within one deployment. Every Hareno object (workspace, connection, dataset, report, schedule, job, artifact, cache entry, audit event) belongs to exactly one company, and every request runs in one active company context. Kiban rejects cross-company facts, so consolidated reporting across companies is not representable as a single shared object; if it becomes a requirement, it needs a deliberate design (for example a dedicated group-level company whose datasets read consolidated mart views). A deployment with one company remains a valid special case.
 9. **Member directory exposure:** every company member can read the member directory, including email addresses. The client must accept this or it must be addressed before launch.
 10. **Hosting:** Kiban must be served at the root of its own hostname.
+11. **Positions on org units (found 2026-10-12, v0.1.2):** the admin position-create route rejects `orgUnitId` and places every position at the company root, although the published API contract lists `orgUnitId` as required; the gateway exposes no position update route. Until Kiban supports placement, Hareno keeps its own mapping from positions or groups to data-policy scopes (for example a region) instead of deriving scope from a position's org unit.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 
