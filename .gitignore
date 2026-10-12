@@ -2,3 +2,4 @@
 dev/kiban/.env
 dev/kiban/secrets-in/
 dev/kiban/hareno-backend-secret
+node_modules/

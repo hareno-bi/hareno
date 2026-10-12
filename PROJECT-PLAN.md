@@ -18,7 +18,7 @@ Durations are indicative only, assuming a team of about four (two Go backend, on
 
 | Item | Output |
 |---|---|
-| Repository layout | Go module (`api`, `worker` entry points), React/TS frontend, Malloy compile sidecar, `deploy/` |
+| Repository layout | Go module (`api`, `worker` entry points), React/TS frontend, Malloy compile sidecar. Done; `deploy/` arrives with the Helm chart in Phase 4 |
 | Development environment | Docker Compose: development data mart, application PostgreSQL, Keycloak + Kiban v0.1.2 seeded with two companies, SeaweedFS (optional until exports). Done except SeaweedFS: `dev/README.md` |
 | Development data mart | Deterministic star-schema seed with hand-verified expected results and deliberate traps (§14). Done: `dev/mart/` |
 | CI | Build, test, lint, dependency licence report that fails on non-allowlisted licences |
@@ -32,6 +32,8 @@ Throwaway-quality code is acceptable; the findings are the deliverable.
 | Spike | Question | Pass criteria |
 |---|---|---|
 | S1 Semantic layer (§18.1) | Can Malloy compile Hareno queries correctly? | About 20 golden queries match expected results: fan-out, totals and subtotals, distinct counts across relationships, row-policy injection, period-over-period, nulls. MetricFlow run on the same set for comparison |
+
+S1 early observations from the Phase 0 sidecar test (Malloy 0.0.435, Postgres): the fan-out query returned the known answers (shipping 42.75, revenue 587.75). Symmetric-aggregate sums are cast to `DOUBLE PRECISION` (precision risk for money); a sum over only nulls returns 0 via `COALESCE`, not NULL; results are wrapped with `row_to_json`. S1 must decide how each is handled.
 | S2 Kiban integration (§10.4) | Does Kiban hold up as Hareno's authorization? | Go SDK login and `BatchCan` working; check latency measured at representative refresh concurrency; bounded-scan catalog listing; position-based grant follows reassignment; company isolation holds across catalog, queries, cache and exports; disablement-to-access-loss interval measured |
 | S3 Presentation | Does ECharts reach the visual bar? Does the matrix approach work? | Client signs off a themed ECharts sample set; TanStack matrix prototype with server subtotals, 10k+ virtualized rows, keyboard navigation |
 | S4 Refresh | Does five-second polling stay bounded? | Polling + in-flight deduplication + cache prototype; source query rate measured against viewer count |
