@@ -1,0 +1,15 @@
+# Hareno local development stack.
+services:
+  mart:
+    image: postgres:18.0
+    environment:
+      POSTGRES_DB: mart
+      POSTGRES_PASSWORD: dev  # dev-only
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - ./dev/mart/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "mart"]
+      interval: 2s
+      retries: 30

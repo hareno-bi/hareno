@@ -2,7 +2,7 @@
 
 Recorded: 2026-10-12. Revised 2026-10-12 with component evaluation decisions (section 18).
 
-Status: planning only. No application development is authorized by this document.
+Status: Phase 0 (foundations) authorized by the project owner on 2026-10-12; see PROJECT-PLAN.md. Later phases require separate authorization.
 
 This document preserves the requirements, recommendations, tradeoffs, and unresolved questions discussed so far. **Confirmed** means explicitly stated by the client-facing project owner. **Decided** means selected by the project owner after evaluation, subject to the named validation gate. **Proposed** means recommended during planning and recorded for review; it does not imply a final approved technology selection. Roadmap items are not delivered capabilities or promised dates.
 
