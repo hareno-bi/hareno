@@ -1,0 +1,4 @@
+# Dev Kiban: generated secrets
+dev/kiban/.env
+dev/kiban/secrets-in/
+dev/kiban/hareno-backend-secret
