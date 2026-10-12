@@ -1,0 +1,41 @@
+# Development data mart
+
+A small PostgreSQL star schema with a deterministic seed, used as the test oracle for Hareno's query compilation (ARCHITECTURE-PLAN.md §14, §18.1). Every expected result was worked out by hand; `known-answers.sql` holds reference SQL that must reproduce them.
+
+```sh
+dev/mart/check.sh        # start the mart and run all known-answer checks
+docker compose down      # stop; the seed is recreated on next start
+```
+
+Connection: `localhost:55433`, database `mart`, schema `mart`.
+- `hareno_reader` / `hareno_reader`: the read-only credential Hareno uses.
+- `postgres` / `dev`: admin.
+
+Both are dev-only passwords.
+
+## Model
+
+`fact_order_line` (line grain) → `fact_order` (order grain) → `dim_customer` → `dim_region`; lines → `dim_product`; `dim_date` holds the fiscal calendar; `etl_watermark` holds load times.
+
+Test conventions, not client facts:
+- Business time zone: `Asia/Hong_Kong`.
+- Fiscal year starts 1 April and is labelled by the year it ends in.
+
+## Deliberate traps
+
+| Trap | Where | Checks |
+|---|---|---|
+| Fan-out: order-grain shipping joined to lines | `fact_order.shipping_cost` | Q04, Q05 |
+| Null measure / null dimension group | shipping on order 106, Cobalt's segment | Q06, Q07 |
+| Distinct counts are not additive | customers across categories | Q09 |
+| Ratio totals recompute, not average | margin %, average order value | Q10, Q16 |
+| Null discount means none | `fact_order_line.discount` | Q11 |
+| Time zone moves an order across month and fiscal year | order 105 | Q12, Q13 |
+| No prior period gives NULL, not 0 | January month-over-month | Q14 |
+| Matrix subtotals and grand total | region × category | Q15 |
+| Empty group / division by zero | Ember has no orders | Q16 |
+| Cancelled orders excluded | order 107 | Q02 |
+| Row policy | North-only viewer | Q17 |
+| Read-only credential | `hareno_reader` | Q19 |
+
+Shipping by product category has no correct answer without an allocation rule; Hareno's model must reject that query.

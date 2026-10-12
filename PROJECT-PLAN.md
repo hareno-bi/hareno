@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: draft for owner review. The architecture record states that no application development is authorized; Phase 1 spikes need explicit authorization before they start.
+Status: reviewed and merged. Phase 0 authorized 2026-10-12; Phase 1 spikes need explicit authorization before they start.
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 
@@ -20,7 +20,7 @@ Durations are indicative only, assuming a team of about four (two Go backend, on
 |---|---|
 | Repository layout | Go module (`api`, `worker` entry points), React/TS frontend, Malloy compile sidecar, `deploy/` |
 | Development environment | Docker Compose: development data mart, application PostgreSQL, Keycloak + Kiban v0.1.2 seeded with two companies, SeaweedFS (optional until exports) |
-| Development data mart | Deterministic star-schema seed with hand-verified expected results and deliberate traps (§14) |
+| Development data mart | Deterministic star-schema seed with hand-verified expected results and deliberate traps (§14). Done: `dev/mart/` |
 | CI | Build, test, lint, dependency licence report that fails on non-allowlisted licences |
 
 **Exit:** `docker compose up` gives a working local stack; CI is green; the known-answer document exists for the seed data.
