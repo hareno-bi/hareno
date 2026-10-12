@@ -21,7 +21,7 @@ Durations are indicative only, assuming a team of about four (two Go backend, on
 | Repository layout | Go module (`api`, `worker` entry points), React/TS frontend, Malloy compile sidecar. Done; `deploy/` arrives with the Helm chart in Phase 4 |
 | Development environment | Docker Compose: development data mart, application PostgreSQL, Keycloak + Kiban v0.1.2 seeded with two companies, SeaweedFS (optional until exports). Done except SeaweedFS: `dev/README.md` |
 | Development data mart | Deterministic star-schema seed with hand-verified expected results and deliberate traps (§14). Done: `dev/mart/` |
-| CI | Build, test, lint, dependency licence report that fails on non-allowlisted licences |
+| CI | Build, test, lint, dependency licence report that fails on non-allowlisted licences. Done: `.github/workflows/ci.yml` (also runs the dev mart known answers) |
 
 **Exit:** `docker compose up` gives a working local stack; CI is green; the known-answer document exists for the seed data.
 
