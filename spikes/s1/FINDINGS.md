@@ -2,7 +2,9 @@
 
 Date: 2026-10-12. Gate: ARCHITECTURE-PLAN.md §18.1. Engines: Malloy 0.0.435 (through Hareno's compile sidecar) and dbt MetricFlow 0.213.0 (CLI, dbt-core 1.12.5). Target: the dev mart (PostgreSQL 18), queries executed as `hareno_reader`. Expected values: the hand-computed known answers in `dev/mart/known-answers.sql`. Raw output: [results.txt](results.txt).
 
-Databricks was not tested (no access yet). The §18.1 gate requires it before final confirmation.
+Scope is PostgreSQL only, the sole source for now. Other sources (Databricks first) rerun these cases when their connector is built.
+
+Owner decision 2026-10-12: Malloy confirmed on the four conditions below.
 
 ## Recommendation
 
@@ -78,7 +80,7 @@ Latency: the CLI took about 4.6 s per query, almost all Python start-up. Product
 
 ## Open items carried forward
 
-- Databricks: rerun C01–C21 through Malloy's Databricks dialect once access exists. That includes checking how its symmetric aggregate handles precision.
+- Further sources: rerun C01–C21 through the source's Malloy dialect when its connector is built (Databricks: Milestone 3). That includes checking how its symmetric aggregate handles precision.
 - Upstream Malloy issue/PR for the NUMERIC cast; decide on the vendored-patch mechanism.
 - The planner's grain-validation rule (condition 1) belongs in the semantic-model specification (§16 item 4).
 

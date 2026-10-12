@@ -473,16 +473,16 @@ Evidence was gathered from repository LICENSE files, source and documentation on
 
 Malloy risks: 0.0.x versioning, the structured query interface is marked work-in-progress, a small team, and governance not independently confirmed. Mitigations: Hareno owns its model format and generates Malloy source, so the compiler is replaceable; pin and vendor Malloy; maintain a golden-SQL regression suite.
 
-**Gate:** a two-week spike compiling about 20 known-answer queries (fan-out, totals and subtotals, distinct counts across relationships, row policy injection, period-over-period, nulls) through Malloy and MetricFlow against the development mart, then against Databricks when access exists. Malloy is confirmed if it passes; otherwise MetricFlow is re-evaluated against the failures.
+**Gate:** a two-week spike compiling about 20 known-answer queries (fan-out, totals and subtotals, distinct counts across relationships, row policy injection, period-over-period, nulls) through Malloy and MetricFlow against the development mart. Malloy is confirmed if it passes; otherwise MetricFlow is re-evaluated against the failures.
 
-**S1 result (2026-10-12, PostgreSQL only; owner decision pending):** Malloy 17/21 out of the box, 19/21 counting the two query-generation workarounds below. MetricFlow 19/21, but only after upstream model denormalisation (12/21 before). Recommendation: confirm Malloy on four conditions:
+**S1 result (2026-10-12, PostgreSQL): Malloy confirmed by the owner.** Malloy 17/21 out of the box, 19/21 counting the two query-generation workarounds below. MetricFlow 19/21, but only after upstream model denormalisation (12/21 before). Malloy is confirmed on four conditions:
 
 1. Hareno's planner rejects grain-unsafe queries before compiling.
 2. The generator emits guarded division and null-preserving sums.
 3. The Postgres fan-out-safe sum's `DOUBLE PRECISION` cast is fixed upstream, carried meanwhile as a vendored patch.
 4. Time buckets are rendered in business time by Go.
 
-Databricks remains to be run. Evidence: `spikes/s1/FINDINGS.md`.
+PostgreSQL is the only source until a further source is admitted. The C01–C21 cases are rerun through that source's Malloy dialect when its connector is built (Databricks: Milestone 3). Evidence: `spikes/s1/FINDINGS.md`.
 
 ### 18.2 Existing BI codebases — reference only
 
