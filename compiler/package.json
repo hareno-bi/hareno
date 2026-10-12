@@ -1,0 +1,13 @@
+{
+  "name": "hareno-compiler",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node server.ts",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@malloydata/malloy": "0.0.435"
+  }
+}
