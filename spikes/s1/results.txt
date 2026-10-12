@@ -1,0 +1,50 @@
+C01  malloy     PASS        total revenue (complete)
+C01  metricflow PASS        total revenue (complete)
+C02  malloy     PASS        orders / distinct customers / lines
+C02  metricflow PASS        orders / distinct customers / lines
+C03  malloy     PASS        revenue by region
+C03  metricflow PASS        revenue by region
+C04  malloy     PASS        fan-out trap, order-grain shipping with line revenue in one query
+C04  metricflow PASS        fan-out trap, order-grain shipping with line revenue in one query
+C05  malloy     PASS        shipping by region (dimension on the one side)
+C05  metricflow PASS        shipping by region (dimension on the one side)
+C06  malloy     NO_REJECT   shipping by product category must be rejected (no allocation rule)  [returned [['Hardware', Decimal('42.75')], ['Services', Decimal('15.25')], ['Accessories', Decimal('5.5')]]]
+C06  metricflow REJECTED    shipping by product category must be rejected (no allocation rule)  [The given input does not match any of the available group-by-items for SimpleMetric('shipping'). Common issues are:]
+C07  malloy     PASS        null measure, avg ignores nulls, count(column) vs count(*)
+C07  metricflow PASS        null measure, avg ignores nulls, count(column) vs count(*)
+C08  malloy     PASS        null dimension value is its own group
+C08  metricflow PASS        null dimension value is its own group
+C09  malloy     PASS        distinct count is not additive across categories
+C09  metricflow PASS        distinct count is not additive across categories
+C10  malloy     PASS        ratio totals recompute (margin %)
+C10  metricflow PASS        ratio totals recompute (margin %)
+C11  malloy     PASS        null discount means none (gross / discount / net)
+C11  metricflow PASS        null discount means none (gross / discount / net)
+C12  malloy     PASS        time zone, revenue by business-time month (order 105 moves to April)
+C12  metricflow PASS        time zone, revenue by business-time month (order 105 moves to April)
+C13  malloy     PASS        fiscal year/quarter via dim_date on the business-time date
+C13  metricflow PASS        fiscal year/quarter via dim_date on the business-time date
+C14  malloy     PASS        month-over-month change, first month NULL
+C14  metricflow PASS        month-over-month change, first month NULL
+C15  malloy     PASS        running total by month
+C15  metricflow PASS        running total by month
+C16  malloy     PASS        matrix region x category with row, column and grand totals
+C16  metricflow PASS        matrix region x category with row, column and grand totals
+C17  malloy     ERROR       average order value by customer incl. one with no orders; total is not an average of averages
+      division by zero
+C17  metricflow PASS        average order value by customer incl. one with no orders; total is not an average of averages
+C18  malloy     PASS        row policy (North only) applies to totals and distinct counts
+C18  metricflow PASS        row policy (North only) applies to totals and distinct counts
+C19  malloy     PASS        row policy (North only) by category
+C19  metricflow PASS        row policy (North only) by category
+C20  malloy     FAIL        sum over only NULL values is NULL, not 0
+C20  metricflow PASS        sum over only NULL values is NULL, not 0
+C21  malloy     FAIL        money precision through a fan-out-safe sum (large value)
+C21  metricflow UNSUPPORTED money precision through a fan-out-safe sum (large value)  [no ad-hoc SQL sources; MetricFlow emits plain SUM over NUMERIC (no float cast)]
+C17W malloy     PASS        workaround: guarded division (pick ... when denominator > 0)
+C17W metricflow SKIPPED     workaround: guarded division (pick ... when denominator > 0)
+C20W malloy     PASS        workaround: NULL sum when no non-null inputs (pick ... when count > 0)
+C20W metricflow SKIPPED     workaround: NULL sum when no non-null inputs (pick ... when count > 0)
+
+malloy {'PASS': 19, 'NO_REJECT': 1, 'ERROR': 1, 'FAIL': 2}
+metricflow {'PASS': 19, 'REJECTED': 1, 'UNSUPPORTED': 1, 'SKIPPED': 2}

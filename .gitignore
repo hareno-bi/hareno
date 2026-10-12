@@ -3,3 +3,11 @@ dev/kiban/.env
 dev/kiban/secrets-in/
 dev/kiban/hareno-backend-secret
 node_modules/
+
+# S1 spike: Python env and dbt artefacts
+spikes/s1/.venv/
+spikes/s1/metricflow/target/
+spikes/s1/metricflow/logs/
+spikes/s1/metricflow/dbt_packages/
+spikes/s1/metricflow/.user.yml
+__pycache__/

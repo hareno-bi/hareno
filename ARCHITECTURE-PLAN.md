@@ -475,6 +475,15 @@ Malloy risks: 0.0.x versioning, the structured query interface is marked work-in
 
 **Gate:** a two-week spike compiling about 20 known-answer queries (fan-out, totals and subtotals, distinct counts across relationships, row policy injection, period-over-period, nulls) through Malloy and MetricFlow against the development mart, then against Databricks when access exists. Malloy is confirmed if it passes; otherwise MetricFlow is re-evaluated against the failures.
 
+**S1 result (2026-10-12, PostgreSQL only; owner decision pending):** Malloy 17/21 out of the box, 19/21 counting the two query-generation workarounds below. MetricFlow 19/21, but only after upstream model denormalisation (12/21 before). Recommendation: confirm Malloy on four conditions:
+
+1. Hareno's planner rejects grain-unsafe queries before compiling.
+2. The generator emits guarded division and null-preserving sums.
+3. The Postgres fan-out-safe sum's `DOUBLE PRECISION` cast is fixed upstream, carried meanwhile as a vendored patch.
+4. Time buckets are rendered in business time by Go.
+
+Databricks remains to be run. Evidence: `spikes/s1/FINDINGS.md`.
+
 ### 18.2 Existing BI codebases — reference only
 
 Lightdash: root MIT, but `packages/backend/src/ee/` is under the Lightdash Source Available License since 2025-01-27 (production use requires a paid subscription; Lightdash retains rights in modifications). 31 core non-test files import from `ee/`. SSO/SCIM, scheduled delivery, embedding and custom roles are paid. TypeScript backend, tile-based dashboards, around 12,600 commits per year. Not forked; ideas only (dbt YAML `meta` metric convention, fan-out detection behavior, SQL-side pivot/subtotals). No bespoke-ownership-compatible BI fork exists among the evaluated options; Hareno remains a clean-room build.

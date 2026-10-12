@@ -1,0 +1,12 @@
+hareno_s1:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+      port: 55433
+      user: postgres
+      password: dev  # dev-only, dev mart admin
+      dbname: mart
+      schema: mart_mf
+      threads: 1
