@@ -9,5 +9,6 @@ Client-owned, web-based BI platform. Planning and decisions: [ARCHITECTURE-PLAN.
 | `compiler/` | Malloy compile sidecar: stateless, no database access (`npm start`, `npm test`) |
 | `web/` | React + TypeScript frontend (`npm run dev`) |
 | `dev/` | Local development stack: data mart, app database, Kiban. See [dev/README.md](dev/README.md) |
+| `scripts/` | Dependency licence allowlist and npm lockfile check (CI also runs `go-licenses` against it) |
 
 Requires Go 1.25+, Node 24+ (runs the sidecar's TypeScript directly), Docker with Compose.

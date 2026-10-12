@@ -1,0 +1,9 @@
+# SPDX identifiers allowed for third-party dependencies (ARCHITECTURE-PLAN.md §1, §13).
+# MPL-2.0 is allowed only for dependencies used unmodified (§18.6); this check cannot see modifications.
+MIT
+Apache-2.0
+BSD-2-Clause
+BSD-3-Clause
+ISC
+0BSD
+MPL-2.0
