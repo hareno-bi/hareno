@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import Charts from './s3/Charts'
 import Matrix from './s3/Matrix'
 import { styles, useTheme, type Pref } from './s3/theme'
@@ -10,7 +10,7 @@ const fromHash = (): Page => (location.hash === '#/matrix' ? 'matrix' : 'charts'
 
 export default function App() {
   const [page, setPage] = useState<Page>(fromHash)
-  const { pref, setPref, style, setStyleId, fontsReady, key } = useTheme()
+  const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme()
   useEffect(() => {
     const on = () => setPage(fromHash())
     addEventListener('hashchange', on)
@@ -41,7 +41,9 @@ export default function App() {
           </select>
         </label>
       </header>
-      <main>{page === 'charts' ? <Charts style={style} themeKey={key} fontsReady={fontsReady} /> : <Matrix />}</main>
+      <div className="dash" style={vars as CSSProperties}>
+        <main>{page === 'charts' ? <Charts style={style} vars={vars} themeKey={key} fontsReady={fontsReady} /> : <Matrix />}</main>
+      </div>
     </>
   )
 }

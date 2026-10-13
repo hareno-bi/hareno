@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { EChartsCoreOption } from 'echarts/core'
 import { Chart } from './Chart'
 import { fmtCompact, fmtDelta, fmtPct, fmtWhole } from './format'
-import { token, type ChartStyle, type Style } from './theme'
+import type { ChartStyle, Style, Tokens } from './theme'
 
 type Series = { name: string; data: number[] }
 type Period = { tonnes: number; flights: number; revenue: number; onTime: number }
@@ -25,7 +25,7 @@ const axisCompact = { axisLabel: { formatter: (v: number) => fmtCompact(v) } }
 const tooltipAxis = { trigger: 'axis', valueFormatter: tonnes }
 const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-export default function Charts({ style, themeKey, fontsReady }: { style: Style; themeKey: string; fontsReady: boolean }) {
+export default function Charts({ style, vars, themeKey, fontsReady }: { style: Style; vars: Tokens; themeKey: string; fontsReady: boolean }) {
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -35,20 +35,14 @@ export default function Charts({ style, themeKey, fontsReady }: { style: Style; 
   }, [])
   const theme = themeKey // charts re-create when mode, style or fonts change
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow the theme
-  const opts = useMemo(() => (data ? options(data, style.chart) : null), [data, theme])
+  const opts = useMemo(() => (data ? options(data, style.chart, vars) : null), [data, theme])
 
   if (error) return <p className="note">Sample data missing ({error}). Run <code>web/scripts/s3-snapshot.sh</code>.</p>
   if (!data || !opts || !fontsReady) return <div className="grid">{[1, 2, 3, 4].map((i) => <Card key={i} title="" state="loading" />)}</div>
   const { current: cur, prior } = data.kpi
-  const chart = (key: string, label: string) => <Chart theme={theme} chart={style.chart} option={opts[key]} label={label} />
+  const chart = (key: string, label: string) => <Chart theme={theme} chart={style.chart} tokens={vars} option={opts[key]} label={label} />
   return (
     <>
-      <p className="note">
-        Sample set for sign-off, modelled on <strong>Northgate Air Cargo Terminal</strong>, a fictional cargo handling
-        facility: twelve invented airlines, about 12,000 flights over 24 months, generated in the dev mart. Amounts
-        carry no currency until one is agreed. Switch style and light/dark at the top right: fonts, shapes, colours
-        and chart treatment all change together. Current style: <strong>{style.name}</strong>, {style.idea.charAt(0).toLowerCase() + style.idea.slice(1)}
-      </p>
       <section className="kpis" aria-label="Key figures, last 12 months">
         <Kpi label="Tonnes handled" value={fmtCompact(cur.tonnes) + ' t'} delta={cur.tonnes / prior.tonnes - 1} />
         <Kpi label="Flights handled" value={fmtWhole(cur.flights)} delta={cur.flights / prior.flights - 1} />
@@ -133,7 +127,8 @@ function Card(props: {
   )
 }
 
-function options(d: Data, c: ChartStyle): Record<string, EChartsCoreOption> {
+function options(d: Data, c: ChartStyle, t: Tokens): Record<string, EChartsCoreOption> {
+  const token = (name: string) => t[name]
   const months = d.months.map(monthLabel)
   const grid = { left: 8, right: 16, top: 40, bottom: 8, containLabel: true }
   const legend = { top: 0, left: 0 }

@@ -45,10 +45,13 @@ function save(key: string, v: string) {
 
 const family = (f: string) => (f === 'system-ui' ? '' : `'${f}', `) + "system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif"
 
-// apply writes a style's tokens onto <html>, so page CSS and chart options read the same values.
-function apply(s: Style, mode: Mode) {
-  const c = s[mode], root = document.documentElement.style
-  const vars: Record<string, string> = {
+// tokens are a style's CSS custom properties for one mode. The dashboard element carries the chosen
+// style's tokens and chart options read the same map, so cards and charts always match; the app
+// chrome (top bar) always uses the Hareno style.
+export type Tokens = Record<string, string>
+export function tokens(s: Style, mode: Mode): Tokens {
+  const c = s[mode]
+  const vars: Tokens = {
     bg: c.bg, surface: c.surface, text: c.text, muted: c.muted, grid: c.grid, accent: c.accent, up: c.up, down: c.down,
     sub: c.sub, total: c.total, active: c.active, 'heat-lo': c.heatLo, 'heat-hi': c.heatHi, 'on-series': c.onSeries,
     font: family(s.fonts.body), 'font-display': family(s.fonts.display),
@@ -57,7 +60,11 @@ function apply(s: Style, mode: Mode) {
     'kpi-weight': String(s.shape.kpiWeight), num: s.shape.numberFeatures, 'bg-image': s.shape.backgroundImage,
   }
   c.series.forEach((v, i) => (vars[`series-${i + 1}`] = v))
-  for (const [k, v] of Object.entries(vars)) root.setProperty(`--${k}`, v)
+  return Object.fromEntries(Object.entries(vars).map(([k, v]) => [`--${k}`, v]))
+}
+
+function applyChrome(mode: Mode) {
+  for (const [k, v] of Object.entries(tokens(styles[0], mode))) document.documentElement.style.setProperty(k, v)
   document.documentElement.dataset.theme = mode
 }
 
@@ -87,8 +94,7 @@ export function useTheme() {
   }, [])
   const mode: Mode = pref === 'system' ? system : pref
   const style = styles.find((s) => s.id === styleId) ?? styles[0]
-  // Applied during render, not in an effect: child effects (chart init) run first and read the tokens.
-  apply(style, mode)
+  applyChrome(mode)
   useEffect(() => save('hareno-theme', pref), [pref])
   useEffect(() => {
     save('hareno-style', styleId)
@@ -97,13 +103,12 @@ export function useTheme() {
   // Charts wait for fontsReady: ECharts caches text measurements per font name, so drawing with a
   // fallback face first leaves labels sized for the wrong font. key re-creates charts on any change.
   const fontsReady = !style.fonts.googleFontsQuery || fontsFor === style.id
-  return { pref, setPref, mode, style, setStyleId, fontsReady, key: `${mode}:${style.id}` }
+  return { pref, setPref, mode, style, setStyleId, fontsReady, vars: tokens(style, mode), key: `${mode}:${style.id}` }
 }
 
-export const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-
-// echartsTheme builds the ECharts theme from the current tokens and the style's chart treatment.
-export function echartsTheme(c: ChartStyle) {
+// echartsTheme builds the ECharts theme from the dashboard's tokens and the style's chart treatment.
+export function echartsTheme(c: ChartStyle, t: Tokens) {
+  const token = (name: string) => t[name]
   const text = token('--text'), muted = token('--muted'), grid = token('--grid'), surface = token('--surface')
   const axis = {
     axisLine: { show: c.axisLine, lineStyle: { color: muted } },

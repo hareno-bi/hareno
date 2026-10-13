@@ -34,7 +34,7 @@ The sample set is modelled on **Northgate Air Cargo Terminal**, a fictional carg
 - **Colour:** page, text, grid, accent, up/down, table subtotal rows, heatmap range and six series colours, each for light and dark mode.
 - **Chart treatment:** line width, curve smoothing, point symbol, area fill (none, solid or gradient), glow, bar corner radius and width, grid line style, axis lines, legend icon, label size, animation duration and easing, donut ring, gauge width, and heatmap cell gap.
 
-theme.ts writes the tokens onto the page and builds the ECharts theme and series options from the same style, so page and charts always match. Switching style re-creates the charts once the style's fonts have loaded. ECharts caches text measurements per font, so drawing with a fallback face first leaves labels sized wrongly; we hit this and fixed it.
+A style applies to the dashboard area only: theme.ts puts its tokens on the dashboard element and builds the ECharts theme and series options from the same map, so cards and charts always match. The app chrome (top bar) keeps the Hareno style and follows only light/dark mode. Switching style re-creates the charts once the style's fonts have loaded. ECharts caches text measurements per font, so drawing with a fallback face first leaves labels sized wrongly; we hit this and fixed it.
 
 **Styles.** Hareno is the default. The other five were designed with **Kimi CLI** (kimi-code 0.36.1) from one prompt giving the dashboard, the schema and a request for dramatic, accessible themes. Its JSON was used unchanged except for one mapping: its "line" legend icon is drawn as a thin bar, because ECharts has no such icon.
 
@@ -70,7 +70,7 @@ Rows are airline → flight and columns are flow (export, import, transhipment) 
   - Left on a flight goes to its airline.
 
   The active cell is announced through `aria-activedescendant`, and rows carry `aria-level` and `aria-expanded`.
-- **Scrolling:** at 100 px per frame (6,000 px/s), frames average 16.6–17.2 ms with a p95 of 16.7–16.8 ms, which is 60 fps. A fling of 600 px per frame averages 22–27 ms (about 40 fps), with a worst frame of 50–117 ms across runs. That is without a GPU, on a loaded host. The 60 fps check is not fully stable there: in one of four later runs, p95 was 33 ms (one dropped frame in twenty). Recheck on client-like hardware before Phase 2 relies on it.
+- **Scrolling:** at 100 px per frame (6,000 px/s), frames average 16.6–17.2 ms with a p95 of 16.7–16.8 ms, which is 60 fps. A fling of 600 px per frame averages 22–27 ms (about 40 fps), with a worst frame of 50–117 ms across runs. That is without a GPU, on a loaded host. The 60 fps check is not fully stable there: in two of six later runs, at load averages of 20–27 on 8 cores, p95 was 33 ms (one dropped frame in twenty). Recheck on client-like hardware before Phase 2 relies on it.
 - **Layout:** no page errors, and no horizontal page scroll for any of the six styles in light or dark mode, or at 390 px wide.
 
 **What this says about effort:** the matrix is about 200 lines once the server provides subtotal rows. The hard part is the query (Malloy must produce the same rollup; S1 covered nesting, not subtotal rows). Sorting within groups, column resizing, frozen header columns at phone width, cell copy and an export that matches what is shown are not built. These remain the main Phase 2–3 matrix work.

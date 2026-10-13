@@ -13,7 +13,9 @@
 :root[data-theme='dark'] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
-body { margin: 0; background-color: var(--bg); background-image: var(--bg-image); background-size: 24px 24px; color: var(--text); font: 14px/1.45 var(--font); min-height: 100vh; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); }
+/* The dashboard area carries the chosen style's tokens (inline, from theme.ts); the top bar keeps Hareno's. */
+.dash { background-color: var(--bg); background-image: var(--bg-image); background-size: 24px 24px; color: var(--text); font: 14px/1.45 var(--font); min-height: calc(100vh - 58px); }
 h2 { font: 600 16px var(--font-display); margin: 28px 0 12px; text-transform: var(--heading-transform); letter-spacing: var(--heading-spacing); }
 h3 { font: 600 14px var(--font-display); margin: 0; text-transform: var(--heading-transform); letter-spacing: var(--heading-spacing); }
 code { font-size: 12px; background: var(--sub); padding: 1px 4px; border-radius: 3px; }
@@ -21,7 +23,7 @@ code { font-size: 12px; background: var(--sub); padding: 1px 4px; border-radius:
 .note { color: var(--muted); max-width: 900px; margin: 0 0 16px; }
 
 .top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; background: var(--surface); border-bottom: var(--border-width) solid var(--grid); }
-.brand { font: 700 18px var(--font-display); text-transform: var(--heading-transform); letter-spacing: var(--heading-spacing); }
+.brand { font: 700 18px var(--font-display); }
 .top nav { display: flex; gap: 4px; }
 .top nav a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: var(--radius); }
 .top nav a[aria-current='page'] { color: var(--text); background: var(--sub); font-weight: 600; }
