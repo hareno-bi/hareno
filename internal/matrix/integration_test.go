@@ -1,21 +1,15 @@
 package matrix
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
-	"net"
-	"net/http"
-	"os"
-	"os/exec"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hareno-bi/hareno/internal/compiler"
+	"github.com/hareno-bi/hareno/internal/compiler/compilertest"
+	"github.com/hareno-bi/hareno/internal/query"
 )
 
 // TestQ15ThroughMalloy runs the matrix end to end: Spec -> sidecar -> SQL on the dev mart as the
@@ -40,7 +34,7 @@ func TestTwoLevelsWithRatio(t *testing.T) {
 	m := env.run(t, spec)
 
 	oracle := map[string][2]float64{} // "region|customer|category" ("*" = all) -> revenue, margin
-	rows, err := env.db.Query(context.Background(), `
+	rows, err := env.r.DB.Query(context.Background(), `
 		WITH l AS (
 			SELECT r.region_name, c.customer_name, p.category,
 			       li.quantity * li.unit_price * (1 - coalesce(li.discount, 0)) AS rev, li.quantity * p.unit_cost AS cost
@@ -97,97 +91,29 @@ func TestTwoLevelsWithRatio(t *testing.T) {
 	}
 }
 
-type env struct {
-	db      *pgxpool.Pool
-	sidecar string
-	model   string
-}
+type env struct{ r query.Runner }
 
 func integration(t *testing.T) env {
 	t.Helper()
-	if os.Getenv("HARENO_INTEGRATION") != "1" {
-		t.Skip("set HARENO_INTEGRATION=1 to run against the dev mart and compile sidecar")
-	}
-	dsn := os.Getenv("HARENO_MART_DSN")
-	if dsn == "" {
-		dsn = "postgres://hareno_reader:hareno_reader@localhost:55433/mart"
-	}
-	db, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(db.Close)
-	model, err := os.ReadFile("../../dev/mart/mart.malloy")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return env{db: db, sidecar: startSidecar(t), model: string(model)}
+	compilertest.Require(t)
+	return env{query.Runner{
+		Compiler: &compiler.Client{URL: compilertest.Sidecar(t)},
+		DB:       compilertest.Mart(t),
+		Model: query.Model{URL: "file://hareno/mart.malloy", Files: map[string]string{"file://hareno/mart.malloy": compilertest.MartModel(t)},
+			Connection: "mart", Dialect: "postgres"},
+	}}
 }
 
 // run compiles spec through the sidecar, executes it as the restricted reader and shapes it.
 func (e env) run(t *testing.T, spec Spec) Matrix {
 	t.Helper()
-	ctx := context.Background()
-	c := compiler.Client{URL: e.sidecar}
-	res, err := c.Compile(ctx, compiler.Request{
-		ModelURL: "file://hareno/mart.malloy", Files: map[string]string{"file://hareno/mart.malloy": e.model},
-		Connection: "mart", Dialect: "postgres", Query: spec.Malloy(),
-	}, compiler.Postgres{DB: e.db})
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows, err := e.db.Query(ctx, res.SQL)
+	res, err := e.r.Run(context.Background(), spec.Malloy())
 	if err != nil {
 		t.Fatalf("%v\n%s", err, res.SQL)
 	}
-	var out []map[string]Value
-	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			t.Fatal(err)
-		}
-		d := json.NewDecoder(bytes.NewReader(raw))
-		d.UseNumber()
-		var r map[string]Value
-		if err := d.Decode(&r); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatal(err)
-	}
-	m, err := spec.Shape(out)
+	m, err := spec.Shape(res.Objects())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return m
-}
-
-func startSidecar(t *testing.T) string {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	cmd := exec.Command("node", "server.ts")
-	cmd.Dir = "../../compiler"
-	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
-	for range 100 {
-		if r, err := http.Get(url + "/healthz"); err == nil {
-			r.Body.Close()
-			return url
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("sidecar did not start")
-	return ""
 }
