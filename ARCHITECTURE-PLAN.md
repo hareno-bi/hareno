@@ -360,6 +360,8 @@ Maintain reproducible dependency versions and a usable build path when public re
 
 Forking an existing BI product cannot satisfy full ownership: even MIT-licensed upstream code remains the upstream authors' copyright, and the client would own only its modifications. Hareno is therefore a clean-room build. Third-party products may be studied for ideas and behavior, but their source is not copied. Source-available directories (for example Lightdash's `ee/`) must not be opened as reference.
 
+The owner intends to commercialise Hareno later (recorded 2026-10-13). The licence policy keeps that open: every dependency is permissive (MIT, Apache-2.0, BSD, ISC) or MPL-2.0 used unmodified, and nothing is AGPL, GPL, SSPL, BSL or source-available. That is why MinIO and Lightdash's `ee/` were excluded. Obligations that remain: ship the Apache-2.0 NOTICE files (Kiban, Keycloak, ECharts and others), and publish any change made to an MPL-2.0 file (River). Licences are not the open question; the contract is. Client ownership of the bespoke source must be reconciled with the owner's right to commercialise it, for example through a licence-back or by defining which parts are pre-existing team code.
+
 Dependencies with early or volatile versioning (Malloy 0.0.x, Kiban 0.1.x) are pinned and their source is vendored or mirrored so the client can build and patch them if upstream stalls.
 
 ## 14. Delivery and validation approach
