@@ -1,4 +1,4 @@
-run 2026-10-13T02:13Z; host: 8 cores, shared, load avg 11.86 9.29 8.25
+run 2026-10-13T04:10Z; host: 8 cores, shared, load avg 10.87 9.43 8.83
 
 == login and token verification
 ok   alice: VerifyUserToken returns the Keycloak subject
@@ -9,7 +9,7 @@ ok   dave: MeCompanies = ALPHA,BETA
 ok   tampered token rejected
 
 == grants
-     1111 tuples for 1000 ALPHA reports written in 593ms (batches of 100)
+     1111 tuples for 1000 ALPHA reports written in 635ms (batches of 100)
 
 == BatchCan
 ok   alice: visible among ALPHA reports 0-99 = [0]
@@ -19,14 +19,14 @@ ok   dave: visible among ALPHA reports 0-99 = [1 11 21 31 41 51 61 71 81 91]
 ok   carol: BETA report via FIN_LEAD position
 
 == bounded-scan catalog listing (page 25, batch 100, scan cap 500)
-     alice page 1:  5 items, scanned    0- 500, 5 BatchCan calls, 344ms
-     alice page 2:  5 items, scanned  500-1000, 5 BatchCan calls, 330ms
+     alice page 1:  5 items, scanned    0- 500, 5 BatchCan calls, 328ms
+     alice page 2:  5 items, scanned  500-1000, 5 BatchCan calls, 395ms
 ok   alice: listing returns every visible report exactly once
-     bob   page 1: 25 items, scanned    0- 241, 3 BatchCan calls, 189ms
-     bob   page 2: 25 items, scanned  241- 491, 3 BatchCan calls, 177ms
-     bob   page 3: 25 items, scanned  491- 741, 3 BatchCan calls, 151ms
-     bob   page 4: 25 items, scanned  741- 991, 3 BatchCan calls, 177ms
-     bob   page 5:  1 items, scanned  991-1000, 1 BatchCan calls, 66ms
+     bob   page 1: 25 items, scanned    0- 241, 3 BatchCan calls, 202ms
+     bob   page 2: 25 items, scanned  241- 491, 3 BatchCan calls, 159ms
+     bob   page 3: 25 items, scanned  491- 741, 3 BatchCan calls, 232ms
+     bob   page 4: 25 items, scanned  741- 991, 3 BatchCan calls, 157ms
+     bob   page 5:  1 items, scanned  991-1000, 1 BatchCan calls, 25ms
 ok   bob: listing returns every visible report exactly once
 
 == company isolation
@@ -39,22 +39,32 @@ FAIL dave holds BETA's FIN_LEAD: ALPHA report granted to that position stays den
 ok   second anchor binding an ALPHA report to BETA: rejected, or dave still denied in BETA
 
 == position reassignment (NORTH_MGR: alice -> bob -> alice)
-ok   first check after reassignment (writes took 157ms): alice denied, bob allowed
+ok   assigning bob while alice still holds NORTH_MGR is refused (409)
+ok   between end and assign nobody holds NORTH_MGR: alice and bob both denied
+     no-holder window (end returned -> assign returned, including the two checks): 165ms
+ok   first check after reassignment (writes took 215ms): alice denied, bob allowed
 ok   same-day reassignment back to alice
 ok   alice allowed again
 
+== revoke order (anchor first)
+ok   revoking the anchor while a viewer tuple remains is accepted
+ok   alice denied once the anchor is gone
+ok   revoking the remaining viewer tuple is refused (422 not anchored)
+     refusal: kiban: HTTP 422 VALIDATION_FAILED: object report:s2-041055-orphan is not anchored to company_module:f6c71db9-310b-4a74-8774-9df31f24d184/hareno
+ok   re-anchoring the same id silently revives alice's old viewer grant
+
 == check latency under concurrency
      kind       workers   checks/s   p50      p95      p99      errors
-     Can              1         32   28.9ms   48.9ms   61.1ms   0
-     Can              8         90   78.4ms   157.7ms  205.1ms  0
-     Can             32        104   300.2ms  472.2ms  511.7ms  0
-     Can             64        113   578.7ms  735.7ms  764.3ms  0
-     BatchCan         1       1590   60.8ms   82.5ms   105.7ms  0
-     BatchCan         8       4940   141.9ms  279ms    364.4ms  0
-     BatchCan        32       5180   625.5ms  790ms    838.9ms  0
+     Can              1         29   31.7ms   52.6ms   69ms     0
+     Can              8         81   91.4ms   174.8ms  203.5ms  0
+     Can             32         86   368.7ms  550.8ms  632.1ms  0
+     Can             64         95   652.4ms  1.0294s  1.1065s  0
+     BatchCan         1       1490   64.2ms   92ms     112.4ms  0
+     BatchCan         8       4430   170.5ms  288.6ms  393ms    0
+     BatchCan        32       4240   763.2ms  1.0996s  1.1586s  0
 
 == member deactivation in Kiban (bob)
-ok   bob's existing token, first check after deactivation (23ms): denied
+ok   bob's existing token, first check after deactivation (27ms): denied
 ok   bob's company list no longer shows ALPHA
 ok   bob reactivated: allowed again
 
@@ -63,6 +73,8 @@ ok   dave allowed before disablement
      dave disabled in Keycloak; access token expires in 5m0s
 ok   refresh token refused immediately after disablement
 ok   new login refused
+     MeCompanies with the disabled user's unexpired token: 2 companies, err <nil>
+     VerifyUserToken with that token: err <nil>
      access lost 0s after disablement (token expiry was 5m0s after); Can: KEYCLOAK_DISABLED; VerifyUserToken err: <nil>
 ok   access lost no later than token expiry + 5 s
 

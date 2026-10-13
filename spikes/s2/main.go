@@ -164,12 +164,19 @@ func main() {
 
 	section("position reassignment (NORTH_MGR: alice -> bob -> alice)")
 	alpha0 := catalog[0] // NORTH_MGR only
+	err = adminErr(sa, "POST", "/api/org/admin/positions/"+northMgr.ID+"/assignments", map[string]string{"memberId": member(alpha, "bob")}, nil)
+	check("assigning bob while alice still holds NORTH_MGR is refused (409)", err != nil && strings.Contains(err.Error(), "409"), fmt.Sprint(err))
 	t0 = time.Now()
 	admin(sa, "POST", "/api/org/admin/assignments/"+northMgr.AssignmentID+"/end", nil, nil)
+	gap := time.Now()
+	da, db := can("alice", alpha, alpha0), can("bob", alpha, alpha0)
+	check("between end and assign nobody holds NORTH_MGR: alice and bob both denied", !da.Allowed && !db.Allowed,
+		fmt.Sprintf("alice %v, bob %v", da.Allowed, db.Allowed))
 	var asg struct{ ID string }
 	admin(sa, "POST", "/api/org/admin/positions/"+northMgr.ID+"/assignments", map[string]string{"memberId": member(alpha, "bob")}, &asg)
+	fmt.Printf("     no-holder window (end returned -> assign returned, including the two checks): %v\n", time.Since(gap).Round(time.Millisecond))
 	writeDone := time.Since(t0)
-	da, db := can("alice", alpha, alpha0), can("bob", alpha, alpha0)
+	da, db = can("alice", alpha, alpha0), can("bob", alpha, alpha0)
 	check(fmt.Sprintf("first check after reassignment (writes took %v): alice denied, bob allowed", writeDone.Round(time.Millisecond)), !da.Allowed && db.Allowed,
 		fmt.Sprintf("alice %v %s, bob %v %s", da.Allowed, da.Reason, db.Allowed, db.Reason))
 	admin(sa, "POST", "/api/org/admin/assignments/"+asg.ID+"/end", nil, nil)
@@ -177,6 +184,22 @@ func main() {
 	check("same-day reassignment back to alice", err == nil, fmt.Sprint(err))
 	da = can("alice", alpha, alpha0)
 	check("alice allowed again", da.Allowed, da.Reason)
+
+	section("revoke order (anchor first)")
+	obj := fmt.Sprintf("s2-%s-orphan", run)
+	must(kiban.Grant(ctx, alpha, sdk.AnchorTuple(app, "report", obj, alpha), viewer(obj, "user", kcUserID("alice"), "")))
+	err = kiban.Revoke(ctx, alpha, sdk.AnchorTuple(app, "report", obj, alpha))
+	check("revoking the anchor while a viewer tuple remains is accepted", err == nil, fmt.Sprint(err))
+	d = can("alice", alpha, obj)
+	check("alice denied once the anchor is gone", !d.Allowed, d.Reason)
+	err = kiban.Revoke(ctx, alpha, viewer(obj, "user", kcUserID("alice"), ""))
+	check("revoking the remaining viewer tuple is refused (422 not anchored)", err != nil, "revoke accepted")
+	fmt.Println("     refusal:", err)
+	must(kiban.Grant(ctx, alpha, sdk.AnchorTuple(app, "report", obj, alpha)))
+	d = can("alice", alpha, obj)
+	check("re-anchoring the same id silently revives alice's old viewer grant", d.Allowed, d.Reason)
+	must(kiban.Revoke(ctx, alpha, viewer(obj, "user", kcUserID("alice"), "")))
+	must(kiban.Revoke(ctx, alpha, sdk.AnchorTuple(app, "report", obj, alpha)))
 
 	section("check latency under concurrency")
 	loadTest(alpha, catalog, *loadFor)
@@ -385,6 +408,10 @@ func disablement(company, report string) {
 	check("refresh token refused immediately after disablement", err != nil, "refresh succeeded")
 	_, _, err = loginErr("dave", devPW)
 	check("new login refused", err != nil, "login succeeded")
+	cs, err := kiban.MeCompanies(ctx, access)
+	fmt.Printf("     MeCompanies with the disabled user's unexpired token: %d companies, err %v\n", len(cs), err)
+	_, verr := kiban.VerifyUserToken(ctx, access)
+	fmt.Printf("     VerifyUserToken with that token: err %v\n", verr)
 
 	for {
 		d, err := kiban.Can(ctx, access, checkReq(company, report))
