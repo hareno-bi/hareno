@@ -13,6 +13,17 @@ Connection: `localhost:55433`, database `mart`, schema `mart`.
 
 Both are dev-only passwords.
 
+## Loader
+
+[`loader/`](loader/main.go) stands in for a client's load process, for testing refresh against data that changes:
+
+```sh
+go run ./dev/mart/loader -every 100ms    # 5 orders per load; Ctrl-C prints the load count
+go run ./dev/mart/loader -clean          # remove loaded orders and restore the seed watermark
+```
+
+Each load inserts orders (ids from 1,000,000) with their lines and moves `etl_watermark` in the same transaction. The known-answer checks fail while loaded orders exist, so run `-clean` first. `docker compose down` also resets the mart. The S4 harness starts and cleans the loader itself.
+
 ## Model
 
 `fact_order_line` (line grain) → `fact_order` (order grain) → `dim_customer` → `dim_region`; lines → `dim_product`; `dim_date` holds the fiscal calendar; `etl_watermark` holds load times.
