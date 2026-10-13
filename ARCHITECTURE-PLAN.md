@@ -261,7 +261,7 @@ Evaluation to date consists of documentation, release and source review plus the
 
 Architecture correction: Kiban is **not** built on OpenFGA. It implements its own Zanzibar-subset authorization engine stored in Kiban's PostgreSQL. OpenFGA (v1.12.0) is used only in Kiban's test harness as a differential oracle (65 hand-written cases plus 5000 generated checks); Kiban's own limitations document states this is not a proof of equivalence. Keycloak provides identity. Leaving Kiban later therefore requires exporting tuples from Kiban tables and translating its model JSON; the only existing translator is in the test harness.
 
-Kiban's model: one tenant per deployment; companies; a typed org-unit tree per company; members (per company); positions on org units with dated assignments; groups within a company. Grants to `position#holder` follow the job. Kiban rejects facts that cross companies. Apps integrate through a Keycloak service client, a registered manifest of object types and relations, and the Go SDK (`Can`/`BatchCan`, `Grant`/`Revoke`, member/position/group lookups).
+Kiban's model: one tenant per deployment; companies; a typed org-unit tree per company; members (per company); positions on org units with dated assignments; groups within a company. Grants to `position#holder` follow the job. Kiban rejects members, positions and anchors that cross companies, but v0.1.2 accepts a grant whose subject is another company's position (S2; §10.4 item 12). Apps integrate through a Keycloak service client, a registered manifest of object types and relations, and the Go SDK (`Can`/`BatchCan`, `Grant`/`Revoke`, member/position/group lookups).
 
 ### 10.2 Responsibility boundary
 
@@ -306,6 +306,9 @@ The following reflects the team's supplied response, not independently verified 
 9. **Member directory exposure:** every company member can read the member directory, including email addresses. The client must accept this or it must be addressed before launch.
 10. **Hosting:** Kiban must be served at the root of its own hostname.
 11. **Positions on org units (found 2026-10-12, v0.1.2):** the admin position-create route rejects `orgUnitId` and places every position at the company root, although the published API contract lists `orgUnitId` as required; the gateway exposes no position update route. Until Kiban supports placement, Hareno keeps its own mapping from positions or groups to data-policy scopes (for example a region) instead of deriving scope from a position's org unit.
+12. **Cross-company grant subjects (found by S2, 2026-10-13, v0.1.2; blocking until handled):** the grant route accepts a position from company B as subject on a company-A object, and the check then allows a member of both companies who holds that position. This contradicts Kiban's own security documentation. Hareno validates every grant subject's company before writing; upstream issue to be filed.
+13. **Decision cache (S2):** a single `Can` costs about 30 ms and saturated near 100 checks/s on the dev host. Hareno caches decisions per (subject, company, object, relation) for a fixed TTL (proposed 30 s) and uses `BatchCan` for multi-object checks. This is the revocation model required by item 6: grant revocation, member deactivation and Keycloak disablement take effect within the TTL.
+14. **Decision on every data path (S2):** Kiban's decision denies a Keycloak-disabled user or a deactivated member on the next check, while the access token keeps verifying for up to 300 s. Every data-returning request therefore needs a fresh or cached decision; token verification alone never authorizes. The Go SDK requires Go 1.26.9.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 
@@ -490,7 +493,7 @@ Lightdash: root MIT, but `packages/backend/src/ee/` is under the Lightdash Sourc
 
 ### 18.3 Kiban — adopt, multi-company
 
-Adopted because company, org-unit and position structure is likely to be needed: position-based sharing that follows the job, org units as row-policy scopes, and an org tree and audit log Hareno would otherwise build. Conditions: §10.4 items 1–10. All Kiban calls go through Hareno's authorization integration module; BI row/column policies live in Hareno's database and reference Kiban org units, positions and groups by ID. Decoupling later is feasible but not free (§10.1 correction).
+Adopted because company, org-unit and position structure is likely to be needed: position-based sharing that follows the job, org units as row-policy scopes, and an org tree and audit log Hareno would otherwise build. Conditions: §10.4 items 1–14. S2 (2026-10-13) confirmed the SDK integration, `BatchCan`, bounded-scan listing, position reassignment and immediate member/identity deactivation, and found items 12–14. Evidence: `spikes/s2/FINDINGS.md`. All Kiban calls go through Hareno's authorization integration module; BI row/column policies live in Hareno's database and reference Kiban org units, positions and groups by ID. Decoupling later is feasible but not free (§10.1 correction).
 
 ### 18.4 Table/matrix — TanStack Table v9 (decided)
 

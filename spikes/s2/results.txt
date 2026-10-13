@@ -1,0 +1,70 @@
+run 2026-10-13T02:13Z; host: 8 cores, shared, load avg 11.86 9.29 8.25
+
+== login and token verification
+ok   alice: VerifyUserToken returns the Keycloak subject
+ok   bob: VerifyUserToken returns the Keycloak subject
+ok   carol: VerifyUserToken returns the Keycloak subject
+ok   dave: VerifyUserToken returns the Keycloak subject
+ok   dave: MeCompanies = ALPHA,BETA
+ok   tampered token rejected
+
+== grants
+     1111 tuples for 1000 ALPHA reports written in 593ms (batches of 100)
+
+== BatchCan
+ok   alice: visible among ALPHA reports 0-99 = [0]
+ok   bob: visible among ALPHA reports 0-99 = [1 2 11 21 31 41 51 61 71 81 91]
+ok   carol: visible among ALPHA reports 0-99 = []
+ok   dave: visible among ALPHA reports 0-99 = [1 11 21 31 41 51 61 71 81 91]
+ok   carol: BETA report via FIN_LEAD position
+
+== bounded-scan catalog listing (page 25, batch 100, scan cap 500)
+     alice page 1:  5 items, scanned    0- 500, 5 BatchCan calls, 344ms
+     alice page 2:  5 items, scanned  500-1000, 5 BatchCan calls, 330ms
+ok   alice: listing returns every visible report exactly once
+     bob   page 1: 25 items, scanned    0- 241, 3 BatchCan calls, 189ms
+     bob   page 2: 25 items, scanned  241- 491, 3 BatchCan calls, 177ms
+     bob   page 3: 25 items, scanned  491- 741, 3 BatchCan calls, 151ms
+     bob   page 4: 25 items, scanned  741- 991, 3 BatchCan calls, 177ms
+     bob   page 5:  1 items, scanned  991-1000, 1 BatchCan calls, 66ms
+ok   bob: listing returns every visible report exactly once
+
+== company isolation
+ok   carol (BETA only) asks about an ALPHA report in ALPHA: denied
+ok   dave asks about an ALPHA report he may view, in ALPHA: allowed (control)
+ok   dave asks about the same ALPHA report in BETA context: denied
+ok   tuple on an ALPHA report written under BETA: carol still denied in BETA
+FAIL ALPHA report granted to a BETA position: grant rejected: grant accepted
+FAIL dave holds BETA's FIN_LEAD: ALPHA report granted to that position stays denied in ALPHA: allowed: ALLOWED
+ok   second anchor binding an ALPHA report to BETA: rejected, or dave still denied in BETA
+
+== position reassignment (NORTH_MGR: alice -> bob -> alice)
+ok   first check after reassignment (writes took 157ms): alice denied, bob allowed
+ok   same-day reassignment back to alice
+ok   alice allowed again
+
+== check latency under concurrency
+     kind       workers   checks/s   p50      p95      p99      errors
+     Can              1         32   28.9ms   48.9ms   61.1ms   0
+     Can              8         90   78.4ms   157.7ms  205.1ms  0
+     Can             32        104   300.2ms  472.2ms  511.7ms  0
+     Can             64        113   578.7ms  735.7ms  764.3ms  0
+     BatchCan         1       1590   60.8ms   82.5ms   105.7ms  0
+     BatchCan         8       4940   141.9ms  279ms    364.4ms  0
+     BatchCan        32       5180   625.5ms  790ms    838.9ms  0
+
+== member deactivation in Kiban (bob)
+ok   bob's existing token, first check after deactivation (23ms): denied
+ok   bob's company list no longer shows ALPHA
+ok   bob reactivated: allowed again
+
+== Keycloak disablement (dave)
+ok   dave allowed before disablement
+     dave disabled in Keycloak; access token expires in 5m0s
+ok   refresh token refused immediately after disablement
+ok   new login refused
+     access lost 0s after disablement (token expiry was 5m0s after); Can: KEYCLOAK_DISABLED; VerifyUserToken err: <nil>
+ok   access lost no later than token expiry + 5 s
+
+SOME CHECKS FAILED
+exit status 1
