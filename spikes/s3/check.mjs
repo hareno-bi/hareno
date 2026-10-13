@@ -1,6 +1,7 @@
 // S3 browser checks against the built frontend: matrix virtualization and keyboard model, frame
 // times while scrolling, no page errors, and no horizontal page scroll in dark mode and at phone
 // width (screenshots saved). Needs Google Chrome at /usr/bin/google-chrome.
+import { readFileSync } from 'node:fs'
 import { chromium } from 'playwright-core'
 // Usage: node check.mjs [base URL] [screenshot dir]
 const base = process.argv[2] ?? 'http://localhost:55450/'
@@ -56,12 +57,15 @@ for (const step of [100, 600]) {
 await p.goto(base + '#/charts'); await p.waitForTimeout(1500)
 ok(errors.length === 0, `no page errors (${errors.join('; ')})`)
 
-// Dark mode and phone width screenshots.
-for (const [name, vp, theme, palette] of [['charts-dark', { width: 1400, height: 1500 }, 'dark'], ['charts-phone', { width: 390, height: 1600 }, 'light'],
-  ['matrix-dark', { width: 1400, height: 700 }, 'dark'], ['charts-harbour', { width: 1400, height: 1500 }, 'light', 'harbour'], ['charts-signal-dark', { width: 1400, height: 1500 }, 'dark', 'signal']]) {
+// Every style in light and dark, at desktop and phone width; matrix in one style. Screenshots saved.
+const styleIds = JSON.parse(readFileSync(new URL('../../web/src/s3/styles.json', import.meta.url))).styles.map((s) => s.id)
+const shots = []
+for (const id of styleIds) for (const theme of ['light', 'dark']) shots.push([`charts-${id}-${theme}`, { width: 1400, height: 1500 }, theme, id])
+shots.push(['charts-phone', { width: 390, height: 1600 }, 'light', 'hareno'], ['matrix-departures-board-dark', { width: 1400, height: 700 }, 'dark', 'departures-board'])
+for (const [name, vp, theme, style] of shots) {
   const q = await b.newPage({ viewport: vp, colorScheme: theme })
-  if (palette) await q.addInitScript((v) => localStorage.setItem('hareno-palette', v), palette)
-  await q.goto(base + (name.startsWith('matrix') ? '#/matrix' : '#/charts')); await q.waitForTimeout(2000)
+  await q.addInitScript((v) => localStorage.setItem('hareno-style', v), style)
+  await q.goto(base + (name.startsWith('matrix') ? '#/matrix' : '#/charts')); await q.waitForTimeout(3000)
   const overflow = await q.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   ok(overflow <= 0, `${name}: no horizontal page scroll (${overflow}px)`)
   await q.screenshot({ path: `${out}/${name}.png` })

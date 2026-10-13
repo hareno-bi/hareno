@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { EChartsCoreOption } from 'echarts/core'
 import { Chart } from './Chart'
 import { fmtCompact, fmtDelta, fmtPct, fmtWhole } from './format'
-import { token, type Mode } from './theme'
+import { token, type ChartStyle, type Style } from './theme'
 
 type Series = { name: string; data: number[] }
 type Period = { tonnes: number; flights: number; revenue: number; onTime: number }
@@ -25,7 +25,7 @@ const axisCompact = { axisLabel: { formatter: (v: number) => fmtCompact(v) } }
 const tooltipAxis = { trigger: 'axis', valueFormatter: tonnes }
 const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-export default function Charts({ mode, palette }: { mode: Mode; palette: string }) {
+export default function Charts({ style, themeKey, fontsReady }: { style: Style; themeKey: string; fontsReady: boolean }) {
   const [data, setData] = useState<Data | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -33,21 +33,21 @@ export default function Charts({ mode, palette }: { mode: Mode; palette: string 
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(setData, (e: Error) => setError(e.message))
   }, [])
-  const theme = mode + palette // charts re-create when either changes
+  const theme = themeKey // charts re-create when mode, style or fonts change
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow the theme
-  const opts = useMemo(() => (data ? options(data) : null), [data, theme])
+  const opts = useMemo(() => (data ? options(data, style.chart) : null), [data, theme])
 
   if (error) return <p className="note">Sample data missing ({error}). Run <code>web/scripts/s3-snapshot.sh</code>.</p>
-  if (!data || !opts) return <div className="grid">{[1, 2, 3, 4].map((i) => <Card key={i} title="" state="loading" />)}</div>
+  if (!data || !opts || !fontsReady) return <div className="grid">{[1, 2, 3, 4].map((i) => <Card key={i} title="" state="loading" />)}</div>
   const { current: cur, prior } = data.kpi
-  const chart = (key: string, label: string) => <Chart theme={theme} option={opts[key]} label={label} />
+  const chart = (key: string, label: string) => <Chart theme={theme} chart={style.chart} option={opts[key]} label={label} />
   return (
     <>
       <p className="note">
         Sample set for sign-off, modelled on <strong>Northgate Air Cargo Terminal</strong>, a fictional cargo handling
         facility: twelve invented airlines, about 12,000 flights over 24 months, generated in the dev mart. Amounts
-        carry no currency until one is agreed. Switch theme and palette at the top right: the charts are restyled
-        from the same settings as the page.
+        carry no currency until one is agreed. Switch style and light/dark at the top right: fonts, shapes, colours
+        and chart treatment all change together. Current style: <strong>{style.name}</strong>, {style.idea.charAt(0).toLowerCase() + style.idea.slice(1)}
       </p>
       <section className="kpis" aria-label="Key figures, last 12 months">
         <Kpi label="Tonnes handled" value={fmtCompact(cur.tonnes) + ' t'} delta={cur.tonnes / prior.tonnes - 1} />
@@ -133,28 +133,46 @@ function Card(props: {
   )
 }
 
-function options(d: Data): Record<string, EChartsCoreOption> {
+function options(d: Data, c: ChartStyle): Record<string, EChartsCoreOption> {
   const months = d.months.map(monthLabel)
   const grid = { left: 8, right: 16, top: 40, bottom: 8, containLabel: true }
   const legend = { top: 0, left: 0 }
-  return {
+  const colour = (i: number) => token(`--series-${(i % 6) + 1}`)
+  const glow = (i: number) => (c.glow ? { shadowBlur: c.glow, shadowColor: colour(i) } : {})
+  const area = (i: number) =>
+    c.areaFill === 'none' ? undefined
+      : c.areaFill === 'solid' ? { opacity: c.areaOpacity }
+      : { opacity: 1, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+          { offset: 0, color: colour(i) + Math.round(c.areaOpacity * 255).toString(16).padStart(2, '0') },
+          { offset: 1, color: colour(i) + '00' }] } }
+  const line = (i: number) => ({
+    type: 'line', smooth: c.smooth, symbol: c.symbol, symbolSize: c.symbolSize, showSymbol: c.symbol !== 'none',
+    lineStyle: { width: c.lineWidth, ...glow(i) }, areaStyle: area(i),
+  })
+  const bar = (i: number) => ({
+    type: 'bar', barMaxWidth: c.barMaxWidth, barGap: c.barGap, itemStyle: { ...glow(i) },
+  })
+  const anim = { animationDuration: c.animationDuration, animationEasing: c.animationEasing as 'cubicOut' } // any ECharts easing name
+  const r = c.barRadius
+  const withAnim = (o: Record<string, EChartsCoreOption>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { ...anim, ...v }]))
+  return withAnim({
     line: {
       grid, legend, tooltip: tooltipAxis,
       xAxis: { type: 'category', data: months, boundaryGap: false },
       yAxis: { type: 'value', ...axisCompact },
-      series: d.byFlow.map((s) => ({ type: 'line', name: s.name, data: s.data, smooth: 0.2, symbol: 'none', lineStyle: { width: 2 } })),
+      series: d.byFlow.map((s, i) => ({ ...line(i), name: s.name, data: s.data })),
     },
     gauge: {
       series: [{
         type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 1, radius: '92%', center: ['50%', '58%'],
-        progress: { show: true, width: 14, roundCap: true },
-        axisLine: { lineStyle: { width: 14, color: [[1, token('--grid')]] } },
+        progress: { show: true, width: c.gaugeWidth, roundCap: c.barRadius > 0, itemStyle: { ...glow(0) } },
+        axisLine: { roundCap: c.barRadius > 0, lineStyle: { width: c.gaugeWidth, color: [[1, token('--grid')]] } },
         axisTick: { show: false }, splitLine: { show: false },
         axisLabel: { show: false },
         pointer: { show: false },
         anchor: { show: false },
         title: { offsetCenter: [0, '28%'], color: token('--muted'), fontSize: 12 },
-        detail: { offsetCenter: [0, '-4%'], fontSize: 30, fontWeight: 600, color: token('--text'), formatter: (v: number) => fmtPct(v) },
+        detail: { offsetCenter: [0, '-4%'], fontSize: 30, fontWeight: Number(token('--kpi-weight')), fontFamily: token('--font-display'), color: token('--text'), formatter: (v: number) => fmtPct(v) },
         data: [{ value: d.occupancy, name: 'of storage positions in use' }],
       }],
     },
@@ -162,8 +180,8 @@ function options(d: Data): Record<string, EChartsCoreOption> {
       legend: { bottom: 0 },
       tooltip: { trigger: 'item', valueFormatter: tonnes },
       series: [{
-        type: 'pie', radius: ['40%', '74%'], center: ['50%', '44%'], padAngle: 1,
-        itemStyle: { borderRadius: 4 },
+        type: 'pie', radius: c.donutRadius, center: ['50%', '44%'], padAngle: 1,
+        itemStyle: { borderRadius: r, borderColor: token('--surface'), borderWidth: r ? 0 : 1 },
         label: { position: 'inside', color: token('--on-series'), textBorderWidth: 0, fontWeight: 600,
           formatter: (p: { percent: number }) => (p.percent >= 6 ? fmtPct(p.percent / 100) : '') },
         data: d.byCargo.map((s) => ({ name: s.name, value: sum(s.data) })),
@@ -173,7 +191,8 @@ function options(d: Data): Record<string, EChartsCoreOption> {
       grid, legend, tooltip: tooltipAxis,
       xAxis: { type: 'category', data: months },
       yAxis: { type: 'value', ...axisCompact },
-      series: d.byCargo.map((s) => ({ type: 'bar', name: s.name, data: s.data, stack: 'total', barMaxWidth: 28 })),
+      series: d.byCargo.map((s, i) => ({ ...bar(i), name: s.name, data: s.data, stack: 'total',
+        itemStyle: { ...glow(i), borderRadius: i === d.byCargo.length - 1 ? [r, r, 0, 0] : 0 } })),
     },
     bar: {
       grid: { ...grid, top: 8 },
@@ -181,9 +200,9 @@ function options(d: Data): Record<string, EChartsCoreOption> {
       xAxis: { type: 'value', ...axisCompact },
       yAxis: { type: 'category', data: d.airlines.map((a) => a.name), inverse: true },
       series: [{
-        type: 'bar', data: d.airlines.map((a) => a.tonnes), barMaxWidth: 18,
+        ...bar(0), data: d.airlines.map((a) => a.tonnes), barMaxWidth: Math.min(18, c.barMaxWidth),
         label: { show: true, position: 'right', formatter: (p: { value: number }) => fmtCompact(p.value), color: token('--muted') },
-        itemStyle: { borderRadius: [0, 4, 4, 0] },
+        itemStyle: { ...glow(0), borderRadius: [0, r, r, 0] },
       }],
     },
     combo: {
@@ -195,8 +214,8 @@ function options(d: Data): Record<string, EChartsCoreOption> {
         { type: 'value', name: 'Ready by cut-off', min: 0.86, max: 0.96, interval: 0.02, splitLine: { show: false }, axisLabel: { formatter: (v: number) => fmtPct(v) } },
       ],
       series: [
-        { type: 'bar', name: 'Tonnes', data: d.monthly.map((m) => m.tonnes), barMaxWidth: 24, tooltip: { valueFormatter: tonnes } },
-        { type: 'line', name: 'ULDs ready by cut-off', yAxisIndex: 1, data: d.monthly.map((m) => m.onTime), symbolSize: 6, tooltip: { valueFormatter: (v: number) => fmtPct(v) } },
+        { ...bar(0), name: 'Tonnes', data: d.monthly.map((m) => m.tonnes), itemStyle: { ...glow(0), borderRadius: [r, r, 0, 0] }, tooltip: { valueFormatter: tonnes } },
+        { ...line(1), areaStyle: undefined, symbol: c.symbol === 'none' ? 'circle' : c.symbol, showSymbol: true, symbolSize: Math.max(c.symbolSize, 5), name: 'ULDs ready by cut-off', yAxisIndex: 1, data: d.monthly.map((m) => m.onTime), tooltip: { valueFormatter: (v: number) => fmtPct(v) } },
       ],
     },
     scatter: {
@@ -208,7 +227,7 @@ function options(d: Data): Record<string, EChartsCoreOption> {
       xAxis: { type: 'log', name: 'Weight (kg, log scale)', nameLocation: 'middle', nameGap: 28, ...axisCompact },
       yAxis: { type: 'value', name: 'Hours in terminal', nameLocation: 'middle', nameGap: 32 },
       series: ['Export', 'Import', 'Transhipment'].map((f) => ({
-        type: 'scatter', name: f, symbolSize: 7, itemStyle: { opacity: 0.75 },
+        type: 'scatter', name: f, symbol: c.symbol === 'none' || c.symbol === 'emptyCircle' ? 'circle' : c.symbol, symbolSize: 7, itemStyle: { opacity: 0.75, ...glow(0) },
         data: d.shipments.filter((s) => s[2] === f),
       })),
     },
@@ -224,7 +243,7 @@ function options(d: Data): Record<string, EChartsCoreOption> {
         inRange: { color: [token('--heat-lo'), token('--heat-hi')] },
         textStyle: { color: token('--muted') },
       },
-      series: [{ type: 'heatmap', itemStyle: { borderColor: 'transparent', borderWidth: 2, borderRadius: 3 }, data: d.trucks }],
+      series: [{ type: 'heatmap', itemStyle: { borderColor: token('--surface'), borderWidth: c.heatmapGap, borderRadius: Math.min(r, 4) }, data: d.trucks }],
     },
-  }
+  })
 }

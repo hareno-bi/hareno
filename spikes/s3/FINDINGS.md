@@ -26,9 +26,27 @@ The sample set is modelled on **Northgate Air Cargo Terminal**, a fictional carg
   - heatmap: truck arrivals at the landside docks by weekday and hour;
   - scatter, log scale: weight of 400 shipments against dwell time.
 - **States:** loading, no data, query failed, access removed, and a "data as of … · refreshing" badge for a stale chart (S4).
-- **Light and dark mode** (system, light or dark), **three palettes** (Hareno, Harbour, Signal), both remembered per browser, plus layout at phone width.
+- **Light and dark mode** (system, light or dark) and **six styles**, both remembered per browser, plus layout at phone width.
 
-**Theming:** ECharts takes a theme object at chart creation: colours, fonts, axes, legend, tooltip and per-series defaults. Hareno builds that object from the page's CSS tokens ([theme.ts](../../web/src/s3/theme.ts)), so one stylesheet themes page and charts together. Switching mode or palette re-creates the charts with the new theme. A client brand is one more palette block in [s3.css](../../web/src/s3/s3.css) (`--series-1…6`, `--accent`, heatmap range, and optionally `--font`), with a light and a dark variant.
+**Theming goes well beyond colour.** A style ([styles.json](../../web/src/s3/styles.json)) sets:
+- **Typography:** body and display fonts (Google Fonts in the demo; self-hosted in the product), heading case and letter spacing, KPI weight, and numeral style.
+- **Shape:** corner radius, border width, shadow, card padding, spacing, and a page background (gradient or pattern).
+- **Colour:** page, text, grid, accent, up/down, table subtotal rows, heatmap range and six series colours, each for light and dark mode.
+- **Chart treatment:** line width, curve smoothing, point symbol, area fill (none, solid or gradient), glow, bar corner radius and width, grid line style, axis lines, legend icon, label size, animation duration and easing, donut ring, gauge width, and heatmap cell gap.
+
+theme.ts writes the tokens onto the page and builds the ECharts theme and series options from the same style, so page and charts always match. Switching style re-creates the charts once the style's fonts have loaded. ECharts caches text measurements per font, so drawing with a fallback face first leaves labels sized wrongly; we hit this and fixed it.
+
+**Styles.** Hareno is the default. The other five were designed with **Kimi CLI** (kimi-code 0.36.1) from one prompt giving the dashboard, the schema and a request for dramatic, accessible themes. Its JSON was used unchanged except for one mapping: its "line" legend icon is drawn as a thin bar, because ECharts has no such icon.
+
+| Style | Fonts | Character |
+|---|---|---|
+| Departures Board | IBM Plex Mono, Oswald | split-flap airport board: monospace, square tiles, uppercase, yellow on charcoal in dark mode |
+| Broadsheet | Source Serif 4, Playfair Display | printed financial paper: serif headlines, hairline rules, dotted grid, engraved-style charts |
+| Neon Control Room | Rajdhani, Orbitron | night control room: glowing strokes, gradient fills, scanlines, elastic animation |
+| Blueprint | Space Grotesk, Archivo Black | engineering sheet: grid-paper background, thick frames, hard offset shadows, diamond markers |
+| Swiss Grid | Inter, Inter Tight | Swiss modernism: one red accent, greys, soft shadows, rounded bars |
+
+Text contrast was checked for every style: body text is 13.9–18.5:1 and muted text 5.3–7.7:1 on its card surface, in both modes (WCAG AA needs 4.5:1). A client brand becomes one more entry in the same file.
 
 **Design decisions:**
 - Amounts carry no currency symbol until one is agreed. Missing values show "–", never 0.
@@ -52,8 +70,8 @@ Rows are airline → flight and columns are flow (export, import, transhipment) 
   - Left on a flight goes to its airline.
 
   The active cell is announced through `aria-activedescendant`, and rows carry `aria-level` and `aria-expanded`.
-- **Scrolling:** at 100 px per frame (6,000 px/s), frames average 16.6–17.2 ms with a p95 of 16.7–16.8 ms, which is 60 fps. A fling of 600 px per frame averages 22–27 ms (about 40 fps), with a worst frame of 50–117 ms across runs. That is without a GPU, on a loaded host.
-- **Layout:** no page errors, and no horizontal page scroll in dark mode, at 390 px wide, or with the Harbour and Signal palettes.
+- **Scrolling:** at 100 px per frame (6,000 px/s), frames average 16.6–17.2 ms with a p95 of 16.7–16.8 ms, which is 60 fps. A fling of 600 px per frame averages 22–27 ms (about 40 fps), with a worst frame of 50–117 ms across runs. That is without a GPU, on a loaded host. The 60 fps check is not fully stable there: in one of four later runs, p95 was 33 ms (one dropped frame in twenty). Recheck on client-like hardware before Phase 2 relies on it.
+- **Layout:** no page errors, and no horizontal page scroll for any of the six styles in light or dark mode, or at 390 px wide.
 
 **What this says about effort:** the matrix is about 200 lines once the server provides subtotal rows. The hard part is the query (Malloy must produce the same rollup; S1 covered nesting, not subtotal rows). Sorting within groups, column resizing, frozen header columns at phone width, cell copy and an export that matches what is shown are not built. These remain the main Phase 2–3 matrix work.
 

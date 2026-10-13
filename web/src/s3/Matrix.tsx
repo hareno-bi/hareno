@@ -23,7 +23,7 @@ const columns = helper.columns([
   helper.group({ id: 'tot', header: 'Total', columns: helper.columns([tonnes(9), yld(10)]) }),
 ])
 const ROW = 32
-const template = 'minmax(220px, 1.8fr) repeat(8, minmax(90px, 1fr))'
+const template = 'minmax(270px, 1.8fr) repeat(8, minmax(90px, 1fr))'
 
 export default function Matrix() {
   const [all, setAll] = useState<Row[] | null>(null)
