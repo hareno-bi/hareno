@@ -2,10 +2,11 @@
 // ten charts every five seconds through one or more simulated API replicas. Charts run real SQL
 // against the dev mart, slowed with pg_sleep to stand in for heavier queries. The modes compare
 // no caching, a shared Valkey result cache with per-replica in-flight deduplication, an optional
-// cross-replica lock, and stale-while-revalidate. Throwaway spike code; the findings are the
+// cross-replica lock, stale-while-revalidate, and change detection (refresh when a cheap check
+// query says the data was loaded, not when a timer runs out). Throwaway spike code; the findings are the
 // deliverable (FINDINGS.md).
 //
-//	go run .            # all scenarios, about 6 minutes
+//	go run .            # all scenarios, about 12 minutes
 //	go run . -only 3    # one scenario
 package main
 
@@ -34,6 +35,8 @@ const (
 	warmup   = 5 * time.Second
 	hardTTL  = 60 * time.Second // stale-while-revalidate: never serve older than this
 	waitPoll = 25 * time.Millisecond
+	check    = time.Second      // change detection: version check interval per replica
+	keep     = 10 * time.Minute // change detection: entries live until superseded, this is only a cap
 )
 
 var scopes = []string{"North", "South", "West"} // row-policy scopes: viewers in one scope share results
@@ -42,17 +45,19 @@ type scenario struct {
 	name     string
 	viewers  int
 	replicas int
-	mode     string        // none | cache | swr
+	mode     string        // none | cache | swr | change
 	lock     bool          // cross-replica in-flight lock in Valkey
 	ttl      time.Duration // cache: entry lifetime; swr: age after which a background refresh starts
 	cost     time.Duration // the slowest chart's pg_sleep; chart c sleeps cost*(c%5+1)/5
 	pool     int           // source connections per replica
+	load     time.Duration // change: the mart loads new data every load interval (simulated clock)
 	run      time.Duration
 }
 
 type entry struct {
 	Rows       [][]any `json:"rows"`
 	ExecutedAt int64   `json:"executedAt"` // unix nanos when the source query started
+	Version    int64   `json:"version"`    // change: the data version the replica knew when the query started
 }
 
 // replica is one API server: its own connection pool and in-flight deduplication, a shared Valkey.
@@ -60,8 +65,11 @@ type replica struct {
 	id  int
 	s   scenario
 	db  *pgxpool.Pool
+	chk *pgxpool.Pool // change: one connection reserved for the version check, so it never queues behind charts
 	rdb *redis.Client
 	sf  singleflight.Group
+
+	version atomic.Int64 // change: latest data version seen by the check
 }
 
 // stats are shared by every replica and viewer of a scenario.
@@ -69,6 +77,7 @@ type stats struct {
 	measuring  atomic.Bool
 	done       atomic.Bool  // the run is over; background refreshes still finishing are not errors
 	execs      atomic.Int64 // source queries started in the measured window
+	checks     atomic.Int64 // change: version checks in the measured window
 	inflight   atomic.Int64
 	maxInfl    atomic.Int64
 	overlap    atomic.Int64 // a key executing on two replicas (or twice on one) at once
@@ -80,7 +89,7 @@ type stats struct {
 	age        []time.Duration // per chart delivered: now - ExecutedAt
 	poolWait   []time.Duration // waiting for a source connection
 	execTime   []time.Duration // source query duration
-	staleShown atomic.Int64    // charts served from an entry older than ttl (swr)
+	staleShown atomic.Int64    // charts served older than ttl + query (cache, swr) or than the latest load (change)
 	charts     atomic.Int64
 }
 
@@ -108,10 +117,19 @@ func main() {
 		with("slow source, swr, ttl 30s, 1000 viewers", func(s *scenario) {
 			s.viewers, s.cost, s.mode, s.ttl, s.run = 1000, 2*time.Second, "swr", 30*time.Second, 60*time.Second
 		}),
+		with("change, loads every 60s, 1000 viewers", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.run = 1000, "change", 60*time.Second, 120*time.Second
+		}),
+		with("change, loads every 15s, 1000 v, 3 replicas, lock", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.replicas, s.lock, s.run = 1000, "change", 15*time.Second, 3, true, 60*time.Second
+		}),
+		with("slow source, change, loads every 60s, 1000 viewers", func(s *scenario) {
+			s.viewers, s.cost, s.mode, s.load, s.run = 1000, 2*time.Second, "change", 60*time.Second, 120*time.Second
+		}),
 	}
 	fmt.Printf("reports %d x charts %d x scopes %d = %d distinct queries; poll %v; chart cost %v..%v (slow: x10)\n\n",
 		reports, charts, len(scopes), reports*charts*len(scopes), poll, base.cost/5, base.cost)
-	fmt.Printf("%-2s %-42s %8s %8s %6s %7s %9s %9s %9s %9s %7s\n", "#", "scenario", "src q/s", "bound", "maxinf", "overlap",
+	fmt.Printf("%-2s %-50s %8s %8s %6s %7s %9s %9s %9s %9s %7s\n", "#", "scenario", "src q/s", "bound", "maxinf", "overlap",
 		"lat p50", "lat p95", "age p50", "age p95", "stale%")
 	for i, s := range all {
 		if *only != 0 && *only != i+1 {
@@ -133,10 +151,34 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 		db, err := pgxpool.NewWithConfig(ctx, cfg)
 		must(err)
 		defer db.Close()
-		reps = append(reps, &replica{id: i, s: s, db: db, rdb: rdb})
+		rep := &replica{id: i, s: s, db: db, rdb: rdb}
+		if s.mode == "change" {
+			cfg.MaxConns = 1
+			rep.chk, err = pgxpool.NewWithConfig(ctx, cfg)
+			must(err)
+			defer rep.chk.Close()
+		}
+		reps = append(reps, rep)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, warmup+s.run)
 	defer cancel()
+	if s.mode == "change" {
+		for _, rep := range reps {
+			must(rep.checkVersion(runCtx, st))
+			go func() {
+				t := time.NewTicker(check)
+				defer t.Stop()
+				for {
+					select {
+					case <-runCtx.Done():
+						return
+					case <-t.C:
+						st.fail(runCtx, rep.checkVersion(runCtx, st))
+					}
+				}
+			}()
+		}
+	}
 	time.AfterFunc(warmup, func() { st.measuring.Store(true) })
 	var wg sync.WaitGroup
 	for v := range s.viewers {
@@ -145,6 +187,7 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 		wg.Go(func() {
 			// First poll at a random phase, then every poll interval; never overlap a viewer's own polls.
 			next := time.Now().Add(time.Duration(rand.Int64N(int64(poll))))
+			seen := make([]int64, charts) // change: the newest version this viewer has been shown, per chart
 			for {
 				select {
 				case <-runCtx.Done():
@@ -152,7 +195,21 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 				case <-time.After(time.Until(next)):
 				}
 				t := time.Now()
-				ages := rep.refresh(runCtx, st, report, scope)
+				entries := rep.refresh(runCtx, st, report, scope)
+				var ages []time.Duration
+				for c, e := range entries {
+					switch {
+					case e == nil:
+					case s.mode != "change":
+						ages = append(ages, time.Since(time.Unix(0, e.ExecutedAt)))
+					case e.Version > seen[c]:
+						// Time from the load to this viewer's screen; a viewer's first sighting is not a change.
+						if seen[c] != 0 {
+							ages = append(ages, time.Now().Sub(time.Unix(0, e.Version*int64(s.load))))
+						}
+						seen[c] = e.Version
+					}
+				}
 				if st.measuring.Load() && runCtx.Err() == nil {
 					st.mu.Lock()
 					st.latency = append(st.latency, time.Since(t))
@@ -171,9 +228,8 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 	return st
 }
 
-// refresh is one viewer poll: the ten charts of a report, fetched concurrently. Returns each
-// chart's data age at delivery.
-func (r *replica) refresh(ctx context.Context, st *stats, report int, scope string) []time.Duration {
+// refresh is one viewer poll: the ten charts of a report, fetched concurrently.
+func (r *replica) refresh(ctx context.Context, st *stats, report int, scope string) []*entry {
 	keys := make([]string, charts)
 	for c := range charts {
 		keys[c] = fmt.Sprintf("r:%d:%d:%s", report, c, scope)
@@ -187,7 +243,7 @@ func (r *replica) refresh(ctx context.Context, st *stats, report int, scope stri
 			return nil
 		}
 	}
-	ages := make([]time.Duration, charts)
+	out := make([]*entry, charts)
 	var wg sync.WaitGroup
 	for c := range charts {
 		wg.Go(func() {
@@ -199,18 +255,21 @@ func (r *replica) refresh(ctx context.Context, st *stats, report int, scope stri
 			if e == nil {
 				return // counted by fail, unless the run was ending
 			}
-			age := time.Since(time.Unix(0, e.ExecutedAt))
-			ages[c] = age
+			out[c] = e
 			if st.measuring.Load() {
 				st.charts.Add(1)
-				if age > r.s.ttl+costOf(r.s, c) {
+				stale := time.Since(time.Unix(0, e.ExecutedAt)) > r.s.ttl+costOf(r.s, c)
+				if r.s.mode == "change" {
+					stale = e.Version < loadVersion(r.s)
+				}
+				if stale {
 					st.staleShown.Add(1)
 				}
 			}
 		})
 	}
 	wg.Wait()
-	return ages
+	return out
 }
 
 func (r *replica) chart(ctx context.Context, st *stats, report, c int, scope, key string, e *entry) *entry {
@@ -224,13 +283,14 @@ func (r *replica) chart(ctx context.Context, st *stats, report, c int, scope, ke
 			return e // Valkey expires entries at ttl
 		}
 		return r.fill(ctx, st, report, c, scope, key)
-	default: // swr
+	default: // swr, change
 		if e != nil {
-			age := time.Since(time.Unix(0, e.ExecutedAt))
-			if age > r.s.ttl {
+			if !r.fresh(e) {
 				go r.fill(context.WithoutCancel(ctx), st, report, c, scope, key) // background refresh, deduplicated
 			}
-			if age < hardTTL {
+			// ponytail: change mode serves the previous version for as long as its refresh takes; a real
+			// build caps this (e.g. one version behind) like swr's hardTTL.
+			if r.s.mode == "change" || time.Since(time.Unix(0, e.ExecutedAt)) < hardTTL {
 				return e
 			}
 		}
@@ -264,7 +324,7 @@ func (r *replica) waitFor(ctx context.Context, key string) (*entry, error) {
 	for time.Since(start) < 30*time.Second {
 		s, err := r.rdb.Get(ctx, key).Result()
 		if err == nil {
-			if e := decode(s); r.s.mode != "swr" || time.Since(time.Unix(0, e.ExecutedAt)) <= r.s.ttl {
+			if e := decode(s); r.s.mode == "cache" || r.fresh(e) {
 				return e, nil
 			}
 		}
@@ -303,7 +363,7 @@ func (r *replica) execute(ctx context.Context, st *stats, report, c int, scope, 
 		return nil, err
 	}
 	defer conn.Release()
-	e := &entry{ExecutedAt: time.Now().UnixNano()} // data time: when the query starts, not when it queued
+	e := &entry{ExecutedAt: time.Now().UnixNano(), Version: r.version.Load()} // when the query starts, not when it queued
 	if st.measuring.Load() {
 		st.mu.Lock()
 		st.poolWait = append(st.poolWait, time.Since(waitStart))
@@ -341,10 +401,7 @@ func (r *replica) execute(ctx context.Context, st *stats, report, c int, scope, 
 	}
 	if store {
 		b, _ := json.Marshal(e)
-		exp := r.s.ttl
-		if r.s.mode == "swr" {
-			exp = hardTTL
-		}
+		exp := map[string]time.Duration{"cache": r.s.ttl, "swr": hardTTL, "change": keep}[r.s.mode]
 		if err := r.rdb.Set(context.WithoutCancel(ctx), key, b, exp).Err(); err != nil {
 			return nil, err
 		}
@@ -358,6 +415,31 @@ func (st *stats) fail(ctx context.Context, err error) {
 		st.firstErr.CompareAndSwap(nil, err.Error())
 	}
 }
+
+// fresh reports whether a cached entry needs no refresh: young enough (swr) or the latest version (change).
+func (r *replica) fresh(e *entry) bool {
+	if r.s.mode == "change" {
+		return e.Version >= r.version.Load()
+	}
+	return time.Since(time.Unix(0, e.ExecutedAt)) <= r.s.ttl
+}
+
+// checkVersion stands in for `SELECT max(loaded_at) FROM <load log>`: one cheap round trip to the
+// source. The load clock is simulated, since the dev mart does not load new data.
+func (r *replica) checkVersion(ctx context.Context, st *stats) error {
+	var v int64
+	if err := r.chk.QueryRow(ctx, "SELECT $1::bigint", loadVersion(r.s)).Scan(&v); err != nil {
+		return err
+	}
+	if st.measuring.Load() {
+		st.checks.Add(1)
+	}
+	r.version.Store(v)
+	return nil
+}
+
+// loadVersion is the version of the newest load at this moment: loads happen every s.load.
+func loadVersion(s scenario) int64 { return time.Now().UnixNano() / int64(s.load) }
 
 func costOf(s scenario, c int) time.Duration { return s.cost * time.Duration(c%5+1) / 5 }
 
@@ -377,7 +459,11 @@ func report(i int, s scenario, st *stats) {
 		if s.lock {
 			n = 1
 		}
-		bound = fmt.Sprintf("%.1f", k*n/s.ttl.Seconds())
+		period := s.ttl
+		if s.mode == "change" {
+			period = s.load // each load invalidates every key once
+		}
+		bound = fmt.Sprintf("%.1f", k*n/period.Seconds())
 	}
 	pct := func(d []time.Duration, p float64) string {
 		if len(d) == 0 {
@@ -390,9 +476,12 @@ func report(i int, s scenario, st *stats) {
 	if n := st.charts.Load(); n > 0 {
 		stale = fmt.Sprintf("%.1f", 100*float64(st.staleShown.Load())/float64(n))
 	}
-	fmt.Printf("%-2d %-42s %8.1f %8s %6d %7d %9s %9s %9s %9s %7s", i, s.name, float64(st.execs.Load())/secs, bound,
+	fmt.Printf("%-2d %-50s %8.1f %8s %6d %7d %9s %9s %9s %9s %7s", i, s.name, float64(st.execs.Load())/secs, bound,
 		st.maxInfl.Load(), st.overlap.Load(), pct(st.latency, .5), pct(st.latency, .95), pct(st.age, .5), pct(st.age, .95), stale)
 	fmt.Printf("  wait p95 %s exec p50 %s", pct(st.poolWait, .95), pct(st.execTime, .5))
+	if s.mode == "change" {
+		fmt.Printf("  checks/s %.1f (age = load to screen)", float64(st.checks.Load())/secs)
+	}
 	if e := st.errors.Load(); e > 0 {
 		fmt.Printf("  errors %d (first: %v)", e, st.firstErr.Load())
 	}

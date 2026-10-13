@@ -17,3 +17,9 @@ reports 5 x charts 10 x scopes 3 = 150 distinct queries; poll 5s; chart cost 40m
 
 Rows 6, 10 and 11 were rerun separately (06:45Z) after a fix to error counting: the first run counted requests cut off at the end
 of a scenario, and background refreshes outliving it, as errors. Row 12 was added in that rerun. No real errors remain.
+
+Rows 13-15 added 09:46Z (load avg 18.33 13.58 11.27): change detection. age = time from a (simulated) load to the
+viewer's screen; stale% = charts shown from a version older than the latest load; source q/s excludes version checks.
+13 change, loads every 60s, 1000 viewers                   2.5      2.5    143       0        0s        0s     4.65s     7.25s     3.6  wait p95 1.93s exec p50 120ms  checks/s 1.0 (age = load to screen)
+14 change, loads every 15s, 1000 v, 3 replicas, lock      10.0     10.0    136       0        0s        0s        3s     5.33s     3.9  wait p95 700ms exec p50 130ms  checks/s 3.0 (age = load to screen)
+15 slow source, change, loads every 60s, 1000 viewers      1.9      2.5    150       0        0s      20ms    16.33s    24.81s    14.8  wait p95 20.66s exec p50 1.2s  checks/s 1.0 (age = load to screen)
