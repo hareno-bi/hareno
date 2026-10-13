@@ -1,0 +1,50 @@
+// Malloy model of the dev data mart (dev/mart/init.sql), used by Go integration tests.
+// Measures follow dev/mart/known-answers.sql:
+//   revenue = quantity * unit_price * (1 - coalesce(discount, 0)); cost = quantity * unit_cost.
+
+source: regions is mart.table('mart.dim_region') extend { primary_key: region_id }
+
+source: customers is mart.table('mart.dim_customer') extend {
+  primary_key: customer_id
+  join_one: region is regions on region_id = region.region_id
+}
+
+source: products is mart.table('mart.dim_product') extend { primary_key: product_id }
+
+source: dates is mart.table('mart.dim_date') extend { primary_key: date_key }
+
+source: order_lines is mart.table('mart.fact_order_line') extend {
+  join_one: product is products on product_id = product.product_id
+  dimension:
+    line_revenue is quantity * unit_price * (1 - coalesce(discount, 0))
+    line_discount is quantity * unit_price * coalesce(discount, 0)
+    line_cost is quantity * product.unit_cost
+}
+
+source: orders is mart.table('mart.fact_order') extend {
+  primary_key: order_id
+  join_one: customer is customers on customer_id = customer.customer_id
+  join_many: line is order_lines on order_id = line.order_id
+  dimension:
+    category is line.product.category
+    region_name is customer.region.region_name
+  measure:
+    order_count is count()
+    shipping is shipping_cost.sum()
+    avg_shipping is shipping_cost.avg()
+    orders_with_shipping is count() { where: shipping_cost != null }
+    revenue is line.line_revenue.sum()
+    discount_amount is line.line_discount.sum()
+    gross_revenue is revenue + discount_amount
+    cost is line.line_cost.sum()
+    profit is revenue - cost
+    margin_pct is (revenue - cost) / revenue
+    customer_count is count(customer_id)
+    line_count is line.count()
+    aov is revenue / order_count
+}
+
+source: complete is orders extend { where: status = 'complete' }
+
+// Row policy as Hareno would inject it: a where refinement on the governed source.
+source: complete_north is complete extend { where: customer.region.region_name = 'North' }
