@@ -322,7 +322,6 @@
       - '3.75'
 - id: C21
   title: money precision through a fan-out-safe sum (large value)
-  gap: 'P2-03 condition 3: NUMERIC precision; Malloy casts fan-out sums to DOUBLE PRECISION'
   steps:
   - q: |
       source: big is mart.sql("""
