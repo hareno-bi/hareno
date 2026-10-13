@@ -111,7 +111,19 @@ Authorization decisions only. The query-result cache (§8.2) is separate and is 
 ## Carried forward
 
 - Phase 2: Hareno's grant validation (condition 1), the decision cache (condition 2), a Kiban decision on every data-returning path and session ending on refused refresh (condition 3), and company-isolation tests over queries, cache and exports.
-- Upstream: the four issues in [kiban-issues/](kiban-issues/), to be filed by the owner.
+- Upstream, filed 2026-10-13 and confirmed by Kiban's team:
+
+  | Kiban issue | Subject | Target |
+  |---|---|---|
+  | #72 | cross-company grant subject (write and check time) | 0.1.3 |
+  | #73 | revoke without the anchor; deletion order and id reuse documented | 0.1.3 |
+  | #74 | token-only routes serve disabled users | 0.1.3 docs; route check in 0.2 |
+  | #75 | the 409 on assign names the current holder | 0.1.3 |
+  | #71 | positions on org units (found earlier) | 0.1.3 |
+  | #76 | decision cost: cached or event-driven Keycloak state, latency budget | 0.2 |
+  | #77 | atomic position handover | 0.2 |
+
+  When 0.1.3 ships, rerun this harness. The cross-company checks and the revoke-order section should flip, and their expectations must be updated with them. Hareno's own safeguards stay in place: subject validation, relations-first deletion, fresh UUIDs, a decision before data.
 - Rerun this harness on a dedicated host before sizing production, and when Kiban ships its load harness (0.2, issue #32).
 
 ## Running the spike
