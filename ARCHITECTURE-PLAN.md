@@ -142,6 +142,29 @@ Malloy's symmetric aggregates provide fan-out-safe measures across one-to-many j
 
 Trusted dataset administrators may have a separate SQL-backed dataset workflow. Ordinary authors select governed fields and measures. Exact expression syntax, SQL-author privileges, time-intelligence scope and model UI remain to be specified.
 
+### 5.3 Query authoring options (open: client decision before P2-06)
+
+The governed path (Malloy behind Hareno's dataset model) is the default, not the only way to query. The client chooses which of these are offered, and to whom:
+
+| Option | Who | What it gives | What it costs |
+|---|---|---|---|
+| A. Governed fields | All report authors | Click-built queries on datasets; correct totals, shared caching, row policy | Only what the dataset defines |
+| B. SQL tables in a dataset | Dataset admins | An admin writes a SQL query once, and it becomes a dataset table (Malloy reads SQL as a source, S1 C21). Everything on top is governed as in A | Admin effort per table |
+| C. SQL editor | A trusted role (e.g. analysts) | Users type their own SELECT and chart or export the result | Needs the safeguards below; no semantic guarantees (totals, grain) on the result |
+| D. Direct database access | Client's own tools | Analysts use the mart directly with their own credentials | Outside Hareno; client-managed |
+
+**Option C is safe only if row and company policy is enforced by the database itself,** not by Hareno rewriting the SQL: free-typed SQL can always omit a filter. That means:
+- PostgreSQL row-level security policies (or policy-filtered `security_barrier` views) on the mart, keyed on session settings that Hareno sets per request (company, the viewer's org units and positions);
+- the query runs as a role that can only see those policies' rows;
+- one read-only transaction per query, with a statement timeout, a row limit and a per-user concurrency cap;
+- a check that the text is a single SELECT, as defence in depth (sqlglot or the PostgreSQL parser; §18.1). The database privileges remain the real boundary (§4.1);
+- every statement is audited with its user and company;
+- results are not shared across users in the cache.
+
+The mart is client-owned (§1), so these policies are client work that Hareno specifies and tests.
+
+**Why the decision is needed before P2-06:** P2-06 currently enforces row policy by adding Malloy `where` conditions. If option C is wanted, policy should be enforced in the database for every path, governed queries included. Otherwise there are two policy mechanisms to keep in agreement. If C is not wanted now, P2-06 proceeds as planned, and moving to database-enforced policy later is a contained change.
+
 ## 6. Authoring, storage and lifecycle
 
 ### 6.1 Storage
@@ -423,7 +446,7 @@ Development data mart: a Docker Compose PostgreSQL instance with a deterministic
 - Fiscal calendars, locale, decimal/currency and time-zone rules.
 - Exact paginated-report requirements and export formats.
 - Sharing/publishing lifecycle and cross-highlighting semantics.
-- SQL authoring permissions and administrator data access.
+- Query authoring options A–D, including a SQL editor for trusted users, and administrator data access (§5.3; needed before P2-06).
 
 ### Platform dependencies
 
@@ -494,7 +517,7 @@ Evidence was gathered from repository LICENSE files, source and documentation on
 | sqlglot | MIT | Not the core | Parser/transpiler only; join graph, fan-out and measure grain would all be bespoke. Reserve for raw-SQL validation if needed |
 | Go-native parsers | Various | Rejected | Single-dialect parsing only; no semantic layer |
 
-Malloy risks: 0.0.x versioning, the structured query interface is marked work-in-progress, a small team, and governance not independently confirmed. Mitigations: Hareno owns its model format and generates Malloy source, so the compiler is replaceable; pin and vendor Malloy; maintain a golden-SQL regression suite.
+Malloy risks: the language itself is stable (Malloy 4.0, announced October 2023), but the npm packages Hareno calls use 0.0.x numbering with frequent releases, so the compile API can change without a major version; the structured query interface is marked work-in-progress; a small team; governance not independently confirmed. Mitigations: Hareno owns its model format and generates Malloy source, so the compiler is replaceable; pin and vendor Malloy; maintain a golden-SQL regression suite.
 
 **Gate:** a two-week spike compiling about 20 known-answer queries (fan-out, totals and subtotals, distinct counts across relationships, row policy injection, period-over-period, nulls) through Malloy and MetricFlow against the development mart. Malloy is confirmed if it passes; otherwise MetricFlow is re-evaluated against the failures.
 

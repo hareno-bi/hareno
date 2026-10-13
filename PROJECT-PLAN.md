@@ -66,7 +66,7 @@ In order; each lands as its own PR with its test. "Cond" refers to the condition
 | **A** | **Checkpoint: query path proven end to end. Re-estimate.** | | |
 | P2-04 | Application database: migrations for connections (encrypted credentials), datasets, reports and immutable revisions | steps 1, 4 | Migrations apply and roll forward in CI; publish creates a revision that never changes |
 | P2-05 | Kiban module: sign-in, decision cache (30 s allow / 5 s deny, bypass list), `BatchCan`, grant-subject validation, object lifecycle | cond 5–8 | The S2 harness scenarios pass as Go tests against dev Kiban, including the cross-company leak being refused |
-| P2-06 | Row and column policy from Kiban org units and positions, compiled as Malloy `where` refinements; cache scope follows the effective policy | step 6 | North-only viewer sees only North (Q17) on view, preview and export |
+| P2-06 | Row and column policy from Kiban org units and positions, compiled as Malloy `where` refinements, or enforced by PostgreSQL row-level security if the client chooses the SQL editor (§5.3); cache scope follows the effective policy | step 6 | North-only viewer sees only North (Q17) on view, preview and export |
 | P2-07 | Refresh service: Valkey cache, two-level deduplication, stale-while-revalidate, watermark change detection, minimum interval per connection, stale markers | step 5, cond 9–10 | S4 scenarios rerun against the real service stay within their bounds |
 | P2-08 | Report viewer: two linked charts and the matrix, polling with preserved state, the style system with self-hosted fonts | steps 4–5, cond 11 | A viewer sees a published report refresh in place with filters kept |
 | **B** | **Checkpoint: a published report refreshes for a policy-restricted viewer.** | | |
@@ -115,6 +115,7 @@ Databricks connector, broader calculations and chart coverage, scale work, Snowf
 
 | Input | Needed by |
 |---|---|
+| Query authoring options, including a SQL editor for trusted users (ARCHITECTURE-PLAN §5.3); option C moves row policy into the database | Before P2-06 |
 | Whether consolidated cross-company reporting is required | Start of Phase 3 |
 | Visual direction / sample chart sign-off | End of Phase 1 |
 | Capability matrix and launch depth sign-off | Start of Phase 3 |
