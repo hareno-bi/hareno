@@ -10,6 +10,7 @@ docker compose down      # stop; the seed is recreated on next start
 Connection: `localhost:55433`, database `mart`, schema `mart`.
 - `hareno_reader` / `hareno_reader`: the read-only credential Hareno uses.
 - `postgres` / `dev`: admin.
+- `hareno_gate` / `hareno_gate`: the SQL editor's login. Per query it sets the viewer's scope and switches to `hareno_sql`, which row-level security restricts to that scope ([rls.sql](rls.sql), applied at startup after `init.sql`).
 
 Both are dev-only passwords.
 
