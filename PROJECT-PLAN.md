@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`).
+Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`). S2 done: Kiban kept; a blocking cross-company grant finding is handled in Hareno, plus a decision cache (`spikes/s2/FINDINGS.md`).
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 
@@ -32,11 +32,11 @@ Throwaway-quality code is acceptable; the findings are the deliverable.
 | Spike | Question | Pass criteria |
 |---|---|---|
 | S1 Semantic layer (§18.1) | Can Malloy compile Hareno queries correctly? | About 20 golden queries match expected results: fan-out, totals and subtotals, distinct counts across relationships, row-policy injection, period-over-period, nulls. MetricFlow run on the same set for comparison |
-
-S1 early observations from the Phase 0 sidecar test (Malloy 0.0.435, Postgres): the fan-out query returned the known answers (shipping 42.75, revenue 587.75). Symmetric-aggregate sums are cast to `DOUBLE PRECISION` (precision risk for money); a sum over only nulls returns 0 via `COALESCE`, not NULL; results are wrapped with `row_to_json`. S1 must decide how each is handled.
 | S2 Kiban integration (§10.4) | Does Kiban hold up as Hareno's authorization? | Go SDK login and `BatchCan` working; check latency measured at representative refresh concurrency; bounded-scan catalog listing; position-based grant follows reassignment; company isolation holds across catalog, queries, cache and exports; disablement-to-access-loss interval measured |
 | S3 Presentation | Does ECharts reach the visual bar? Does the matrix approach work? | Client signs off a themed ECharts sample set; TanStack matrix prototype with server subtotals, 10k+ virtualized rows, keyboard navigation |
 | S4 Refresh | Does five-second polling stay bounded? | Polling + in-flight deduplication + cache prototype; source query rate measured against viewer count |
+
+S1 early observations from the Phase 0 sidecar test (Malloy 0.0.435, Postgres): the fan-out query returned the known answers (shipping 42.75, revenue 587.75). Symmetric-aggregate sums are cast to `DOUBLE PRECISION` (precision risk for money); a sum over only nulls returns 0 via `COALESCE`, not NULL; results are wrapped with `row_to_json`. S1 must decide how each is handled.
 
 **Gate:** owner review of spike findings. Confirm or replace Malloy; confirm Kiban conditions or record fallbacks; recalibrate Phase 2–4 durations.
 

@@ -11,3 +11,6 @@ spikes/s1/metricflow/logs/
 spikes/s1/metricflow/dbt_packages/
 spikes/s1/metricflow/.user.yml
 __pycache__/
+
+# Local work kept out of GitHub (e.g. the standalone Kiban harness for the Kiban team)
+local/
