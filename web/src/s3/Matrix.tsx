@@ -1,28 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { createColumnHelper, tableFeatures, useTable } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { fmtPct, fmtWhole, orDash } from './format'
+import { fmtTonnes, fmtWhole, fmtYield, orDash } from './format'
 
 // One row from the server, already in display order with subtotals (see scripts/s3-snapshot.sql):
-// [lvl, region, customer, hwRev, hwMargin, svRev, svMargin, acRev, acMargin, totalRev, totalMargin].
-// lvl 0 = customer, 1 = region subtotal, 3 = grand total.
+// [lvl, airline, flight, exportTonnes, exportYield, importTonnes, importYield, tranTonnes, tranYield,
+// totalTonnes, totalYield]. lvl 0 = flight, 1 = airline subtotal, 3 = grand total. Yield is
+// revenue per kg.
 type Row = [number, string | null, string | null, ...(number | null)[]]
 
 const features = tableFeatures({})
 const helper = createColumnHelper<typeof features, Row>()
-const money = (i: number, header: string) =>
-  helper.accessor((r) => r[i] as number | null, { id: `c${i}`, header, cell: (c) => orDash(c.getValue(), fmtWhole) })
-const margin = (i: number) =>
-  helper.accessor((r) => r[i] as number | null, { id: `c${i}`, header: 'Margin', cell: (c) => orDash(c.getValue(), fmtPct) })
+const tonnes = (i: number) =>
+  helper.accessor((r) => r[i] as number | null, { id: `c${i}`, header: 'Tonnes', cell: (c) => orDash(c.getValue(), fmtTonnes) })
+const yld = (i: number) =>
+  helper.accessor((r) => r[i] as number | null, { id: `c${i}`, header: 'Yield / kg', cell: (c) => orDash(c.getValue(), fmtYield) })
 const columns = helper.columns([
-  helper.accessor((r) => (r[0] === 3 ? 'Total' : r[0] === 1 ? r[1] : r[2]), { id: 'name', header: 'Region / customer' }),
-  helper.group({ id: 'hw', header: 'Hardware', columns: helper.columns([money(3, 'Revenue'), margin(4)]) }),
-  helper.group({ id: 'sv', header: 'Services', columns: helper.columns([money(5, 'Revenue'), margin(6)]) }),
-  helper.group({ id: 'ac', header: 'Accessories', columns: helper.columns([money(7, 'Revenue'), margin(8)]) }),
-  helper.group({ id: 'tot', header: 'Total', columns: helper.columns([money(9, 'Revenue'), margin(10)]) }),
+  helper.accessor((r) => (r[0] === 3 ? 'Total' : r[0] === 1 ? r[1] : r[2]), { id: 'name', header: 'Airline / flight' }),
+  helper.group({ id: 'ex', header: 'Export', columns: helper.columns([tonnes(3), yld(4)]) }),
+  helper.group({ id: 'im', header: 'Import', columns: helper.columns([tonnes(5), yld(6)]) }),
+  helper.group({ id: 'tr', header: 'Transhipment', columns: helper.columns([tonnes(7), yld(8)]) }),
+  helper.group({ id: 'tot', header: 'Total', columns: helper.columns([tonnes(9), yld(10)]) }),
 ])
 const ROW = 32
-const template = 'minmax(180px, 1.6fr) repeat(8, minmax(96px, 1fr))'
+const template = 'minmax(220px, 1.8fr) repeat(8, minmax(90px, 1fr))'
 
 export default function Matrix() {
   const [all, setAll] = useState<Row[] | null>(null)
@@ -40,7 +41,7 @@ export default function Matrix() {
       }, (e: Error) => setError(e.message))
   }, [])
 
-  // Collapsing a region hides its customers; the region row keeps its server subtotal.
+  // Collapsing an airline hides its flights; the airline row keeps its server subtotal.
   const data = useMemo(() => (all ?? []).filter((r) => r[0] !== 0 || !collapsed.has(r[1]!)), [all, collapsed])
   const table = useTable({ features, columns, data, getRowId: (r) => `${r[0]}:${r[1]}:${r[2]}` })
   const rows = table.getRowModel().rows
@@ -50,12 +51,12 @@ export default function Matrix() {
   const scroller = useRef<HTMLDivElement>(null)
   const virt = useVirtualizer({ count: rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 12 })
 
-  const toggle = useCallback((region: string) => setCollapsed((s) => {
+  const toggle = useCallback((airline: string) => setCollapsed((s) => {
     const n = new Set(s)
-    if (!n.delete(region)) n.add(region)
+    if (!n.delete(airline)) n.add(airline)
     return n
   }), [])
-  const regions = useMemo(() => (all ?? []).filter((r) => r[0] === 1).map((r) => r[1]!), [all])
+  const airlines = useMemo(() => (all ?? []).filter((r) => r[0] === 1).map((r) => r[1]!), [all])
 
   // Keep the active cell in range when rows disappear, and in view when it moves.
   const row = Math.min(active.row, Math.max(rows.length - 1, 0))
@@ -64,8 +65,8 @@ export default function Matrix() {
   }, [row, virt])
 
   // Keyboard model follows the ARIA treegrid pattern: arrows move, Home/End go to row ends
-  // (with Ctrl, to the first/last row), PageUp/PageDown move a screen, Enter/Space toggle a
-  // region, and Left/Right on a region's first cell collapse/expand it.
+  // (with Ctrl, to the first/last row), PageUp/PageDown move a screen, Enter/Space toggle an
+  // airline, and Left/Right on an airline's first cell collapse/expand it.
   const onKey = (e: KeyboardEvent) => {
     const page = Math.max(1, Math.floor((scroller.current?.clientHeight ?? 400) / ROW) - 2)
     const r = rows[row]?.original
@@ -99,27 +100,28 @@ export default function Matrix() {
   }
 
   if (error) return <p className="note">Sample data missing ({error}). Run <code>web/scripts/s3-snapshot.sh</code>.</p>
-  if (!all) return <p className="note">Loading 12,000 rows…</p>
+  if (!all) return <p className="note">Loading flights…</p>
   const activeId = `cell-${row}-${active.col}`
   return (
     <>
       <p className="note">
-        Prototype: region × category matrix over {fmtWhole(all.length)} rows ({fmtWhole(all.filter((r) => r[0] === 0).length)} customers),
-        loaded in {fmtWhole(loadMs)} ms. Subtotals and the grand total are computed by the database
-        (<code>GROUP BY ROLLUP</code>), with margin recomputed at every level rather than averaged. Only the visible
-        rows are in the page. Click the grid, then use the arrow keys, Page Up/Down, Home/End (Ctrl for first/last
-        row), and Enter or Left/Right on a region to collapse or expand it.
+        Prototype: airline × flow matrix for the fictional Northgate terminal, {fmtWhole(all.length)} rows
+        ({fmtWhole(all.filter((r) => r[0] === 0).length)} flights over 24 months), loaded in {fmtWhole(loadMs)} ms.
+        Subtotals and the grand total are computed by the database (<code>GROUP BY ROLLUP</code>), with yield
+        (revenue per kg) recomputed at every level rather than averaged. Only the visible rows are in the page. Click
+        the grid, then use the arrow keys, Page Up/Down, Home/End (Ctrl for first/last row), and Enter or Left/Right on
+        an airline to collapse or expand it.
       </p>
       <div className="toolbar">
         <button onClick={() => setCollapsed(new Set())}>Expand all</button>
-        <button onClick={() => setCollapsed(new Set(regions))}>Collapse all</button>
+        <button onClick={() => setCollapsed(new Set(airlines))}>Collapse all</button>
         <span className="muted">{fmtWhole(rows.length)} rows shown</span>
       </div>
       <div
         ref={scroller}
         className="matrix"
         role="treegrid"
-        aria-label="Revenue and margin by region, customer and category"
+        aria-label="Tonnes and yield by airline, flight and flow"
         aria-rowcount={rows.length + headerGroups.length}
         aria-colcount={nCols}
         aria-activedescendant={activeId}
@@ -141,15 +143,15 @@ export default function Matrix() {
         <div role="rowgroup" style={{ height: virt.getTotalSize(), position: 'relative' }}>
           {virt.getVirtualItems().map((v) => {
             const tr = rows[v.index]
-            const [lvl, region] = tr.original
-            const isRegion = lvl === 1
+            const [lvl, airline] = tr.original
+            const isAirline = lvl === 1
             return (
               <div
                 key={tr.id}
                 role="row"
                 aria-rowindex={v.index + headerGroups.length + 1}
                 aria-level={lvl === 0 ? 2 : 1}
-                aria-expanded={isRegion ? !collapsed.has(region!) : undefined}
+                aria-expanded={isAirline ? !collapsed.has(airline!) : undefined}
                 className={'m-row ' + ['leaf', 'sub', '', 'total'][lvl]}
                 style={{ gridTemplateColumns: template, transform: `translateY(${v.start}px)`, height: ROW }}
               >
@@ -161,9 +163,9 @@ export default function Matrix() {
                     className={'m-cell' + (ci ? ' num' : '') + (v.index === row && ci === active.col ? ' active' : '')}
                     onClick={() => setActive({ row: v.index, col: ci })}
                   >
-                    {ci === 0 && isRegion && (
-                      <button className="twisty" tabIndex={-1} aria-hidden onClick={() => toggle(region!)}>
-                        {collapsed.has(region!) ? '▸' : '▾'}
+                    {ci === 0 && isAirline && (
+                      <button className="twisty" tabIndex={-1} aria-hidden onClick={() => toggle(airline!)}>
+                        {collapsed.has(airline!) ? '▸' : '▾'}
                       </button>
                     )}
                     <table.FlexRender cell={c} />

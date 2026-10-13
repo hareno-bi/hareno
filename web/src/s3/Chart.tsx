@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
+import { BarChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
 import { DatasetComponent, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { echartsTheme, type Mode } from './theme'
+import { echartsTheme } from './theme'
 
-echarts.use([BarChart, HeatmapChart, LineChart, PieChart, ScatterChart, DatasetComponent, GridComponent,
+echarts.use([BarChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, DatasetComponent, GridComponent,
   LegendComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
 // Chart renders one ECharts option. It re-creates the instance when the theme changes (ECharts
-// themes are fixed at init) and follows its container's size.
-export function Chart({ option, mode, label }: { option: echarts.EChartsCoreOption; mode: Mode; label: string }) {
+// themes are fixed at init) and follows its container's size. theme is any key that changes with it.
+export function Chart({ option, theme, label }: { option: echarts.EChartsCoreOption; theme: string; label: string }) {
   const el = useRef<HTMLDivElement>(null)
   const chart = useRef<echarts.ECharts>(null)
   useEffect(() => {
@@ -22,9 +22,9 @@ export function Chart({ option, mode, label }: { option: echarts.EChartsCoreOpti
       ro.disconnect()
       c.dispose()
     }
-  }, [mode])
+  }, [theme])
   useEffect(() => {
     chart.current?.setOption(option, true)
-  }, [option, mode])
+  }, [option, theme])
   return <div ref={el} className="chart" role="img" aria-label={label} />
 }
