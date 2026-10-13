@@ -1,0 +1,19 @@
+run 2026-10-13T06:28Z; host: 8 cores, shared, load avg 23.32 25.82 20.10
+reports 5 x charts 10 x scopes 3 = 150 distinct queries; poll 5s; chart cost 40ms..200ms (slow: x10)
+
+#  scenario                                    src q/s    bound maxinf overlap   lat p50   lat p95   age p50   age p95  stale%
+1  no cache, 10 viewers                           20.0        -     23       0     230ms     370ms     120ms     210ms     0.0  wait p95 160ms exec p50 120ms
+2  no cache, 100 viewers                          91.6        -   1000       0    12.29s    15.54s     120ms     210ms     0.0  wait p95 15.33s exec p50 120ms
+3  cache, 10 viewers                              16.0     37.5     14       0     210ms     250ms     160ms     1.94s     0.0  wait p95 50ms exec p50 130ms
+4  cache, 100 viewers                             30.3     37.5     75       0        0s     660ms     1.52s     3.53s     0.0  wait p95 580ms exec p50 120ms
+5  cache, 1000 viewers                            35.3     37.5    137       0        0s     210ms     1.97s      3.9s     0.1  wait p95 130ms exec p50 120ms
+6  cache, 5000 viewers                            36.8     37.5    150       0        0s     160ms     2.04s     3.92s     0.1  wait p95 70ms exec p50 120ms
+7  cache, 1000 viewers, 3 replicas, no lock       68.9    112.5    319    1108        0s     210ms     1.94s     3.91s     0.1  wait p95 380ms exec p50 130ms
+8  cache, 1000 viewers, 3 replicas, lock          33.9     37.5    148       0        0s     200ms     1.99s      3.9s     0.1  wait p95 140ms exec p50 120ms
+9  swr, 1000 viewers                              36.6     37.5    145       0        0s        0s     2.19s     4.04s     3.0  wait p95 130ms exec p50 120ms
+10 slow source, cache, 1000 viewers                6.6     37.5    150       0     2.82s    18.94s     1.63s     3.29s     0.0  wait p95 20s exec p50 1.2s
+11 slow source, swr, 1000 viewers                  6.6     37.5    150       0        0s    16.09s     7.03s    21.62s    60.7  wait p95 19.86s exec p50 1.2s
+12 slow source, swr, ttl 30s, 1000 viewers         3.1      5.0    150       0        0s     7.96s     13.5s    31.64s     6.2  wait p95 19.5s exec p50 1.2s
+
+Rows 6, 10 and 11 were rerun separately (06:45Z) after a fix to error counting: the first run counted requests cut off at the end
+of a scenario, and background refreshes outliving it, as errors. Row 12 was added in that rerun. No real errors remain.

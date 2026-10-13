@@ -216,7 +216,16 @@ For ordinary dashboards, allow independent chart completion with visible timesta
 
 ### 8.2 Shared results
 
-Use a shared result cache for multi-replica deployments and coalesce equivalent in-flight work. Proposed cache: Valkey; exact selection remains open.
+Use a shared result cache for multi-replica deployments and coalesce equivalent in-flight work. Cache: Valkey (decided after S4; dev instance in `compose.yaml`).
+
+S4 (2026-10-13) refresh rules (evidence: `spikes/s4/FINDINGS.md`):
+- One `MGET` per report refresh.
+- In-flight deduplication per replica (singleflight) and across replicas (a Valkey `SET NX` lock).
+- Stale-while-revalidate below a hard age ceiling, with stale results marked in the UI.
+- A source-concurrency cap per connection.
+- With these, source queries per second are bounded by distinct queries ÷ cache TTL, independent of viewer count: 5,000 viewers ran at 36.8 queries/s against a bound of 37.5. Without a cache, 100 viewers saturated the source.
+
+Freshness is a capacity contract per report. At publish time, Hareno estimates Σ(query cost) ÷ TTL for the report's distinct queries (charts × effective scopes) against the connection's concurrency budget, and requires a longer TTL when it does not fit. Row-policy scopes should be coarse: a scope per user removes result sharing.
 
 Cache identity includes connection, dataset revision, query, filters, time context and effective data-access scope. Different users may share results only when their effective scopes are equivalent. Check current object access before returning a cache hit, and resolve current row/column policy before selecting the entry.
 
@@ -228,7 +237,7 @@ Query timestamp and source freshness are distinct. A trustworthy source-data fre
 
 Illustrative request count: 100 viewers × 10 charts ÷ 5 seconds = 200 chart requests/second before batching, sharing or deduplication. This is not a measured project workload or a promise of required capacity.
 
-No decision cache is proposed for Kiban initially. Its decision latency and throughput must be measured alongside query and rendering performance.
+Kiban decisions are cached for a bounded TTL (§10.4 item 13), after S2 measured about 30 ms per single check and a ceiling near 100 checks/s on the dev host.
 
 ## 9. Security semantics
 
