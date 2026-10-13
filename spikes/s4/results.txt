@@ -18,8 +18,22 @@ reports 5 x charts 10 x scopes 3 = 150 distinct queries; poll 5s; chart cost 40m
 Rows 6, 10 and 11 were rerun separately (06:45Z) after a fix to error counting: the first run counted requests cut off at the end
 of a scenario, and background refreshes outliving it, as errors. Row 12 was added in that rerun. No real errors remain.
 
+Rows 13-15 below are superseded by the real-loader run that follows (simulated load clock, older harness).
 Rows 13-15 added 09:46Z (load avg 18.33 13.58 11.27): change detection. age = time from a (simulated) load to the
 viewer's screen; stale% = charts shown from a version older than the latest load; source q/s excludes version checks.
 13 change, loads every 60s, 1000 viewers                   2.5      2.5    143       0        0s        0s     4.65s     7.25s     3.6  wait p95 1.93s exec p50 120ms  checks/s 1.0 (age = load to screen)
 14 change, loads every 15s, 1000 v, 3 replicas, lock      10.0     10.0    136       0        0s        0s        3s     5.33s     3.9  wait p95 700ms exec p50 130ms  checks/s 3.0 (age = load to screen)
 15 slow source, change, loads every 60s, 1000 viewers      1.9      2.5    150       0        0s      20ms    16.33s    24.81s    14.8  wait p95 20.66s exec p50 1.2s  checks/s 1.0 (age = load to screen)
+
+Rows 13-17 rerun 11:09Z (load avg 16.38 11.41 9.29) with dev/mart/loader as a separate process and the real watermark,
+shared across replicas through Valkey. Loader summary lines are on stderr.
+loader: 2 loads in 125.0s (0 over the interval)
+13 change, loads 60s, check 1s, 1000 viewers                    2.5      2.5    139       0        0s        0s     3.74s      6.5s     2.0  wait p95 1.91s exec p50 120ms  watermark reads/s 0.99 (age = load to screen)
+loader: 299 loads in 30.0s (0 over the interval)
+14 change, loads 100ms, check 1s, 1000 viewers                 64.8    150.0    148       0        0s        0s     1.88s     3.02s    85.4  wait p95 2.06s exec p50 120ms  watermark reads/s 1.00 (age = load to screen)
+loader: 299 loads in 30.0s (0 over the interval)
+15 change, loads 100ms, check 5s, 1000 viewers                 30.0     30.0    149       0        0s        0s     3.59s      6.2s    23.2  wait p95 2.08s exec p50 130ms  watermark reads/s 0.20 (age = load to screen)
+loader: 299 loads in 29.9s (1 over the interval)
+16 change, loads 100ms, check 5s, 1000 v, 3 replicas, lock     30.1     30.0    150       0        0s        0s      2.9s     5.26s    11.1  wait p95 900ms exec p50 130ms  watermark reads/s 0.20 (age = load to screen)
+loader: 1249 loads in 125.0s (0 over the interval)
+17 slow source, change, loads 100ms, check 30s, 1000 v          5.0      5.0    150       0        0s      20ms    12.87s    23.96s    33.4  wait p95 17.66s exec p50 1.21s  watermark reads/s 0.03 (age = load to screen)

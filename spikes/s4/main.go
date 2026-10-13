@@ -2,8 +2,9 @@
 // ten charts every five seconds through one or more simulated API replicas. Charts run real SQL
 // against the dev mart, slowed with pg_sleep to stand in for heavier queries. The modes compare
 // no caching, a shared Valkey result cache with per-replica in-flight deduplication, an optional
-// cross-replica lock, stale-while-revalidate, and change detection (refresh when a cheap check
-// query says the data was loaded, not when a timer runs out). Throwaway spike code; the findings are the
+// cross-replica lock, stale-while-revalidate, and change detection: refresh when the mart's load
+// watermark moves, not when a timer runs out, while dev/mart/loader feeds the mart in a separate
+// process. Throwaway spike code; the findings are the
 // deliverable (FINDINGS.md).
 //
 //	go run .            # all scenarios, about 12 minutes
@@ -16,7 +17,11 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +40,6 @@ const (
 	warmup   = 5 * time.Second
 	hardTTL  = 60 * time.Second // stale-while-revalidate: never serve older than this
 	waitPoll = 25 * time.Millisecond
-	check    = time.Second      // change detection: version check interval per replica
 	keep     = 10 * time.Minute // change detection: entries live until superseded, this is only a cap
 )
 
@@ -50,14 +54,15 @@ type scenario struct {
 	ttl      time.Duration // cache: entry lifetime; swr: age after which a background refresh starts
 	cost     time.Duration // the slowest chart's pg_sleep; chart c sleeps cost*(c%5+1)/5
 	pool     int           // source connections per replica
-	load     time.Duration // change: the mart loads new data every load interval (simulated clock)
+	load     time.Duration // change: dev/mart/loader's interval
+	check    time.Duration // change: minimum refresh interval; the watermark is read at most this often, across replicas
 	run      time.Duration
 }
 
 type entry struct {
 	Rows       [][]any `json:"rows"`
 	ExecutedAt int64   `json:"executedAt"` // unix nanos when the source query started
-	Version    int64   `json:"version"`    // change: the data version the replica knew when the query started
+	Version    int64   `json:"version"`    // change: the watermark (unix nanos) the replica knew when the query started
 }
 
 // replica is one API server: its own connection pool and in-flight deduplication, a shared Valkey.
@@ -69,7 +74,7 @@ type replica struct {
 	rdb *redis.Client
 	sf  singleflight.Group
 
-	version atomic.Int64 // change: latest data version seen by the check
+	version atomic.Int64 // change: latest watermark this replica has seen
 }
 
 // stats are shared by every replica and viewer of a scenario.
@@ -77,7 +82,7 @@ type stats struct {
 	measuring  atomic.Bool
 	done       atomic.Bool  // the run is over; background refreshes still finishing are not errors
 	execs      atomic.Int64 // source queries started in the measured window
-	checks     atomic.Int64 // change: version checks in the measured window
+	checks     atomic.Int64 // change: watermark reads in the measured window
 	inflight   atomic.Int64
 	maxInfl    atomic.Int64
 	overlap    atomic.Int64 // a key executing on two replicas (or twice on one) at once
@@ -117,31 +122,49 @@ func main() {
 		with("slow source, swr, ttl 30s, 1000 viewers", func(s *scenario) {
 			s.viewers, s.cost, s.mode, s.ttl, s.run = 1000, 2*time.Second, "swr", 30*time.Second, 60*time.Second
 		}),
-		with("change, loads every 60s, 1000 viewers", func(s *scenario) {
-			s.viewers, s.mode, s.load, s.run = 1000, "change", 60*time.Second, 120*time.Second
+		with("change, loads 60s, check 1s, 1000 viewers", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.check, s.run = 1000, "change", 60*time.Second, time.Second, 120*time.Second
 		}),
-		with("change, loads every 15s, 1000 v, 3 replicas, lock", func(s *scenario) {
-			s.viewers, s.mode, s.load, s.replicas, s.lock, s.run = 1000, "change", 15*time.Second, 3, true, 60*time.Second
+		with("change, loads 100ms, check 1s, 1000 viewers", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.check = 1000, "change", 100*time.Millisecond, time.Second
 		}),
-		with("slow source, change, loads every 60s, 1000 viewers", func(s *scenario) {
-			s.viewers, s.cost, s.mode, s.load, s.run = 1000, 2*time.Second, "change", 60*time.Second, 120*time.Second
+		with("change, loads 100ms, check 5s, 1000 viewers", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.check = 1000, "change", 100*time.Millisecond, 5*time.Second
+		}),
+		with("change, loads 100ms, check 5s, 1000 v, 3 replicas, lock", func(s *scenario) {
+			s.viewers, s.mode, s.load, s.check, s.replicas, s.lock = 1000, "change", 100*time.Millisecond, 5*time.Second, 3, true
+		}),
+		with("slow source, change, loads 100ms, check 30s, 1000 v", func(s *scenario) {
+			s.viewers, s.cost, s.mode, s.load, s.check, s.run = 1000, 2*time.Second, "change", 100*time.Millisecond, 30*time.Second, 120*time.Second
 		}),
 	}
 	fmt.Printf("reports %d x charts %d x scopes %d = %d distinct queries; poll %v; chart cost %v..%v (slow: x10)\n\n",
 		reports, charts, len(scopes), reports*charts*len(scopes), poll, base.cost/5, base.cost)
-	fmt.Printf("%-2s %-50s %8s %8s %6s %7s %9s %9s %9s %9s %7s\n", "#", "scenario", "src q/s", "bound", "maxinf", "overlap",
+	loader := buildLoader()
+	defer exec.Command(loader, "-clean").Run() // leave the mart as the known-answer checks expect
+	fmt.Printf("%-2s %-55s %8s %8s %6s %7s %9s %9s %9s %9s %7s\n", "#", "scenario", "src q/s", "bound", "maxinf", "overlap",
 		"lat p50", "lat p95", "age p50", "age p95", "stale%")
 	for i, s := range all {
 		if *only != 0 && *only != i+1 {
 			continue
 		}
 		must(rdb.FlushDB(ctx).Err())
-		st := runScenario(ctx, s, rdb)
+		st := runScenario(ctx, s, rdb, loader)
 		report(i+1, s, st)
 	}
 }
 
-func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
+// buildLoader builds dev/mart/loader; the harness runs it as a separate process per change scenario.
+func buildLoader() string {
+	bin := filepath.Join(os.TempDir(), "hareno-s4-loader")
+	cmd := exec.Command("go", "build", "-o", bin, "./dev/mart/loader")
+	cmd.Dir, cmd.Stderr = "../..", os.Stderr
+	must(cmd.Run())
+	must(exec.Command(bin, "-clean").Run())
+	return bin
+}
+
+func runScenario(ctx context.Context, s scenario, rdb *redis.Client, loader string) *stats {
 	st := &stats{running: map[string]int{}}
 	var reps []*replica
 	for i := range s.replicas {
@@ -163,21 +186,12 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 	runCtx, cancel := context.WithTimeout(ctx, warmup+s.run)
 	defer cancel()
 	if s.mode == "change" {
-		for _, rep := range reps {
-			must(rep.checkVersion(runCtx, st))
-			go func() {
-				t := time.NewTicker(check)
-				defer t.Stop()
-				for {
-					select {
-					case <-runCtx.Done():
-						return
-					case <-t.C:
-						st.fail(runCtx, rep.checkVersion(runCtx, st))
-					}
-				}
-			}()
-		}
+		cmd := exec.CommandContext(runCtx, loader, "-every", s.load.String())
+		cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) } // so it prints its load count
+		cmd.Stderr = os.Stderr
+		must(cmd.Start())
+		defer cmd.Wait()
+		reps[0].currentVersion(runCtx, st, nil)
 	}
 	time.AfterFunc(warmup, func() { st.measuring.Store(true) })
 	var wg sync.WaitGroup
@@ -205,7 +219,7 @@ func runScenario(ctx context.Context, s scenario, rdb *redis.Client) *stats {
 					case e.Version > seen[c]:
 						// Time from the load to this viewer's screen; a viewer's first sighting is not a change.
 						if seen[c] != 0 {
-							ages = append(ages, time.Now().Sub(time.Unix(0, e.Version*int64(s.load))))
+							ages = append(ages, time.Since(time.Unix(0, e.Version)))
 						}
 						seen[c] = e.Version
 					}
@@ -236,11 +250,19 @@ func (r *replica) refresh(ctx context.Context, st *stats, report int, scope stri
 	}
 	var cached []any
 	if r.s.mode != "none" {
+		mkeys := keys
+		if r.s.mode == "change" {
+			mkeys = append(keys[:charts:charts], "ver")
+		}
 		var err error
-		cached, err = r.rdb.MGet(ctx, keys...).Result() // one round trip for the whole report
+		cached, err = r.rdb.MGet(ctx, mkeys...).Result() // one round trip for the whole report
 		if err != nil {
 			st.fail(ctx, err)
 			return nil
+		}
+		if r.s.mode == "change" {
+			r.currentVersion(ctx, st, cached[charts])
+			cached = cached[:charts]
 		}
 	}
 	out := make([]*entry, charts)
@@ -260,7 +282,7 @@ func (r *replica) refresh(ctx context.Context, st *stats, report int, scope stri
 				st.charts.Add(1)
 				stale := time.Since(time.Unix(0, e.ExecutedAt)) > r.s.ttl+costOf(r.s, c)
 				if r.s.mode == "change" {
-					stale = e.Version < loadVersion(r.s)
+					stale = e.Version < r.version.Load()
 				}
 				if stale {
 					st.staleShown.Add(1)
@@ -424,22 +446,33 @@ func (r *replica) fresh(e *entry) bool {
 	return time.Since(time.Unix(0, e.ExecutedAt)) <= r.s.ttl
 }
 
-// checkVersion stands in for `SELECT max(loaded_at) FROM <load log>`: one cheap round trip to the
-// source. The load clock is simulated, since the dev mart does not load new data.
-func (r *replica) checkVersion(ctx context.Context, st *stats) error {
-	var v int64
-	if err := r.chk.QueryRow(ctx, "SELECT $1::bigint", loadVersion(r.s)).Scan(&v); err != nil {
-		return err
+// currentVersion updates r.version from the shared watermark in Valkey (cached, from the refresh's
+// MGET). When it has expired, one replica re-reads the mart's watermark and shares it for s.check,
+// so the watermark is read, and every chart refreshed, at most once per s.check across replicas.
+// Others keep their last version meanwhile.
+func (r *replica) currentVersion(ctx context.Context, st *stats, cached any) {
+	if v, ok := cached.(string); ok {
+		n, _ := strconv.ParseInt(v, 10, 64)
+		r.version.Store(n)
+		return
 	}
-	if st.measuring.Load() {
-		st.checks.Add(1)
-	}
-	r.version.Store(v)
-	return nil
+	_, err, _ := r.sf.Do("ver", func() (any, error) {
+		ok, err := r.rdb.SetNX(ctx, "ver:lock", r.id, r.s.check).Result()
+		if err != nil || !ok {
+			return nil, err
+		}
+		var t time.Time
+		if err := r.chk.QueryRow(ctx, "SELECT max(loaded_at) FROM mart.etl_watermark").Scan(&t); err != nil {
+			return nil, err
+		}
+		if st.measuring.Load() {
+			st.checks.Add(1)
+		}
+		r.version.Store(t.UnixNano())
+		return nil, r.rdb.Set(ctx, "ver", t.UnixNano(), r.s.check).Err()
+	})
+	st.fail(ctx, err)
 }
-
-// loadVersion is the version of the newest load at this moment: loads happen every s.load.
-func loadVersion(s scenario) int64 { return time.Now().UnixNano() / int64(s.load) }
 
 func costOf(s scenario, c int) time.Duration { return s.cost * time.Duration(c%5+1) / 5 }
 
@@ -461,7 +494,7 @@ func report(i int, s scenario, st *stats) {
 		}
 		period := s.ttl
 		if s.mode == "change" {
-			period = s.load // each load invalidates every key once
+			period = max(s.load, s.check) // each watermark change invalidates every key once
 		}
 		bound = fmt.Sprintf("%.1f", k*n/period.Seconds())
 	}
@@ -476,11 +509,11 @@ func report(i int, s scenario, st *stats) {
 	if n := st.charts.Load(); n > 0 {
 		stale = fmt.Sprintf("%.1f", 100*float64(st.staleShown.Load())/float64(n))
 	}
-	fmt.Printf("%-2d %-50s %8.1f %8s %6d %7d %9s %9s %9s %9s %7s", i, s.name, float64(st.execs.Load())/secs, bound,
+	fmt.Printf("%-2d %-55s %8.1f %8s %6d %7d %9s %9s %9s %9s %7s", i, s.name, float64(st.execs.Load())/secs, bound,
 		st.maxInfl.Load(), st.overlap.Load(), pct(st.latency, .5), pct(st.latency, .95), pct(st.age, .5), pct(st.age, .95), stale)
 	fmt.Printf("  wait p95 %s exec p50 %s", pct(st.poolWait, .95), pct(st.execTime, .5))
 	if s.mode == "change" {
-		fmt.Printf("  checks/s %.1f (age = load to screen)", float64(st.checks.Load())/secs)
+		fmt.Printf("  watermark reads/s %.2f (age = load to screen)", float64(st.checks.Load())/secs)
 	}
 	if e := st.errors.Load(); e > 0 {
 		fmt.Printf("  errors %d (first: %v)", e, st.firstErr.Load())
