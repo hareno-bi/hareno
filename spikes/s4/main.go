@@ -67,7 +67,7 @@ type replica struct {
 // stats are shared by every replica and viewer of a scenario.
 type stats struct {
 	measuring  atomic.Bool
-	done       atomic.Bool // the run is over; background refreshes still finishing are not errors
+	done       atomic.Bool  // the run is over; background refreshes still finishing are not errors
 	execs      atomic.Int64 // source queries started in the measured window
 	inflight   atomic.Int64
 	maxInfl    atomic.Int64
