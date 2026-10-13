@@ -1,0 +1,7 @@
+{
+  "name": "hareno-s3-check",
+  "private": true,
+  "type": "module",
+  "scripts": { "check": "node check.mjs" },
+  "devDependencies": { "playwright-core": "1.55.0" }
+}

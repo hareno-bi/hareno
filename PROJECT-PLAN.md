@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`). S2 done: Kiban kept; a blocking cross-company grant finding is handled in Hareno, plus a decision cache (`spikes/s2/FINDINGS.md`). S4 done: polling bounded by distinct queries ÷ TTL with a Valkey cache, two-level deduplication and stale-while-revalidate; freshness is checked against source capacity at publish (`spikes/s4/FINDINGS.md`).
+Status: **Phase 1 gate passed 2026-10-13** ([PHASE1-GATE.md](PHASE1-GATE.md)): Malloy confirmed (PostgreSQL only, four conditions), Kiban kept (§10.4 conditions 1–15), refresh design adopted, matrix approach accepted; the S3 chart sign-off is an open client input. **Phase 2 in progress.** Spike findings: `spikes/s1`–`s4/FINDINGS.md`.
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 
@@ -40,7 +40,7 @@ S1 early observations from the Phase 0 sidecar test (Malloy 0.0.435, Postgres): 
 
 **Gate:** owner review of spike findings. Confirm or replace Malloy; confirm Kiban conditions or record fallbacks; recalibrate Phase 2–4 durations.
 
-## Phase 2 — Vertical slice, milestone 1 (≈6–8 weeks)
+## Phase 2 — Vertical slice, milestone 1 (≈7–9 weeks, recalibrated at the Phase 1 gate)
 
 The §14 workflow, thin but real and production-shaped:
 
@@ -53,6 +53,27 @@ The §14 workflow, thin but real and production-shaped:
 7. CSV export through the same policy pipeline.
 
 **Exit:** the whole slice passes the known-answer suite; policies hold on view, preview and export paths; deployable to a development Kubernetes namespace.
+
+### Phase 2 tasks
+
+In order; each lands as its own PR with its test. "Cond" refers to the conditions in PHASE1-GATE.md. Re-estimate the remaining tasks at checkpoint A, using the team's measured pace.
+
+| # | Task | Covers | Done when |
+|---|---|---|---|
+| P2-01 | Matrix rows from Malloy: compile a matrix query with `all()` totals through the sidecar, run it on the mart, and shape the result into matrix rows in Go | cond 12 | Known answer Q15 (region × category, subtotals, grand total) matches through Go |
+| P2-02 | Go query pipeline: the compile loop with the sidecar (`compiler_needs` answered from the mart's schema), execution with the restricted reader credential, typed results | step 1 | Golden queries C01–C21 from S1 run through Go in CI against the dev mart |
+| P2-03 | Model document v0 and planner: an admin-authored dataset (relationships, measures) generating the Malloy source; grain check; guarded division and null-preserving sums; vendored NUMERIC patch; time-zone labels | step 2, cond 1–4 | Golden suite passes, including the C06 rejection and C21 precision |
+| **A** | **Checkpoint: query path proven end to end. Re-estimate.** | | |
+| P2-04 | Application database: migrations for connections (encrypted credentials), datasets, reports and immutable revisions | steps 1, 4 | Migrations apply and roll forward in CI; publish creates a revision that never changes |
+| P2-05 | Kiban module: sign-in, decision cache (30 s allow / 5 s deny, bypass list), `BatchCan`, grant-subject validation, object lifecycle | cond 5–8 | The S2 harness scenarios pass as Go tests against dev Kiban, including the cross-company leak being refused |
+| P2-06 | Row and column policy from Kiban org units and positions, compiled as Malloy `where` refinements; cache scope follows the effective policy | step 6 | North-only viewer sees only North (Q17) on view, preview and export |
+| P2-07 | Refresh service: Valkey cache, two-level deduplication, stale-while-revalidate, watermark change detection, minimum interval per connection, stale markers | step 5, cond 9–10 | S4 scenarios rerun against the real service stay within their bounds |
+| P2-08 | Report viewer: two linked charts and the matrix, polling with preserved state, the style system with self-hosted fonts | steps 4–5, cond 11 | A viewer sees a published report refresh in place with filters kept |
+| **B** | **Checkpoint: a published report refreshes for a policy-restricted viewer.** | | |
+| P2-09 | Minimal designer: add, remove and place charts on a grid, pick fields and measures from the dataset, link two charts by a shared filter | step 3 | A report built in the designer publishes and views correctly |
+| P2-10 | CSV export through the same policy pipeline, with a fresh decision (no cache) | step 7 | Export of a restricted viewer's report contains only their rows |
+| P2-11 | Development Kubernetes namespace: images, minimal manifests (Helm comes in Phase 4) | exit | The slice runs in the namespace against the dev mart and dev Kiban |
+| P2-12 | Exit suite: known answers end to end; policy tests on view, preview and export | exit | All pass in CI and in the namespace |
 
 ## Phase 3 — Product depth, milestone 2 (≈16–24 weeks)
 

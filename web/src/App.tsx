@@ -1,3 +1,49 @@
+import { useEffect, useState, type CSSProperties } from 'react'
+import Charts from './s3/Charts'
+import Matrix from './s3/Matrix'
+import { styles, useTheme, type Pref } from './s3/theme'
+import './s3/s3.css'
+
+const pages = { charts: 'Chart samples', matrix: 'Matrix prototype' } as const
+type Page = keyof typeof pages
+const fromHash = (): Page => (location.hash === '#/matrix' ? 'matrix' : 'charts')
+
 export default function App() {
-  return <h1>Hareno</h1>
+  const [page, setPage] = useState<Page>(fromHash)
+  const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme()
+  useEffect(() => {
+    const on = () => setPage(fromHash())
+    addEventListener('hashchange', on)
+    return () => removeEventListener('hashchange', on)
+  }, [])
+  return (
+    <>
+      <header className="top">
+        <strong className="brand">Hareno</strong>
+        <span className="muted">S3 presentation spike</span>
+        <nav>
+          {(Object.keys(pages) as Page[]).map((p) => (
+            <a key={p} href={`#/${p}`} aria-current={p === page ? 'page' : undefined}>{pages[p]}</a>
+          ))}
+        </nav>
+        <label className="theme">
+          Style{' '}
+          <select value={style.id} onChange={(e) => setStyleId(e.target.value)}>
+            {styles.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+        <label>
+          Theme{' '}
+          <select value={pref} onChange={(e) => setPref(e.target.value as Pref)}>
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </header>
+      <div className="dash" style={vars as CSSProperties}>
+        <main>{page === 'charts' ? <Charts style={style} vars={vars} themeKey={key} fontsReady={fontsReady} /> : <Matrix />}</main>
+      </div>
+    </>
+  )
 }
