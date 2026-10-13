@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`). S2 done: Kiban kept; a blocking cross-company grant finding is handled in Hareno, plus a decision cache (`spikes/s2/FINDINGS.md`). S4 done: polling bounded by distinct queries ÷ TTL with a Valkey cache, two-level deduplication and stale-while-revalidate; freshness is checked against source capacity at publish (`spikes/s4/FINDINGS.md`).
+Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`). S2 done: Kiban kept; a blocking cross-company grant finding is handled in Hareno, plus a decision cache (`spikes/s2/FINDINGS.md`). S4 done: polling bounded by distinct queries ÷ TTL with a Valkey cache, two-level deduplication and stale-while-revalidate; refresh on change where the mart has a load watermark, with an admin minimum refresh interval as the overload control (`spikes/s4/FINDINGS.md`). S3 built: chart sample set and matrix prototype published at http://139.99.122.192:55450; the matrix criteria are met, and the chart set awaits client sign-off (`spikes/s3/FINDINGS.md`).
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 

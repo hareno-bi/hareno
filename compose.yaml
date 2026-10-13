@@ -39,5 +39,17 @@ services:
       interval: 2s
       retries: 30
 
+  # Public demo of the built frontend (web/dist), on every interface: `docker compose --profile demo up -d demo`.
+  # Static files only; nothing else in this file is published beyond localhost.
+  demo:
+    image: nginx:1.29.1-alpine
+    profiles: ["demo"]
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:55450:80"
+    volumes:
+      - ./web/dist:/usr/share/nginx/html:ro
+      - ./dev/demo/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
 volumes:
   appdb:
