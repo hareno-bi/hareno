@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -27,6 +28,9 @@ type Runner struct {
 	Compiler *compiler.Client
 	DB       *pgxpool.Pool
 	Model    Model
+	// TimeZone, when set, relabels timestamp results in business time (gate condition 4): Malloy
+	// returns time buckets as UTC instants, e.g. HKT January as 2025-12-31T16:00:00+00:00.
+	TimeZone *time.Location
 }
 
 // Value is a result value: json.Number (numbers keep their exact text), string, bool or nil.
@@ -49,6 +53,10 @@ func (r Runner) Run(ctx context.Context, malloy string) (Result, error) {
 		return Result{}, err
 	}
 	res := Result{SQL: c.SQL, Columns: c.Columns}
+	label := make([]func(Value) Value, len(c.Columns))
+	for i, t := range c.Types {
+		label[i] = timeLabel(t, r.TimeZone)
+	}
 	rows, err := r.DB.Query(ctx, c.SQL)
 	if err != nil {
 		return res, fmt.Errorf("execute: %w", err)
@@ -68,7 +76,7 @@ func (r Runner) Run(ctx context.Context, malloy string) (Result, error) {
 		}
 		row := make([]Value, len(c.Columns))
 		for i, col := range c.Columns {
-			row[i] = obj[col]
+			row[i] = label[i](obj[col])
 		}
 		res.Rows = append(res.Rows, row)
 	}
@@ -89,4 +97,42 @@ func (r Result) Objects() []map[string]Value {
 		out[i] = m
 	}
 	return out
+}
+
+// timeLabel returns how to present a column's values: timestamps in the business time zone,
+// truncated to their bucket (2026-01, 2026-Q1, 2026-01-15, 2026-01-15T18:00), everything else
+// unchanged.
+func timeLabel(t map[string]any, loc *time.Location) func(Value) Value {
+	kind, _ := t["kind"].(string)
+	if loc == nil || (kind != "timestamp_type" && kind != "timestamptz_type") {
+		return func(v Value) Value { return v }
+	}
+	frame, _ := t["timeframe"].(string)
+	return func(v Value) Value {
+		s, ok := v.(string)
+		if !ok {
+			return v
+		}
+		ts, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			return v
+		}
+		ts = ts.In(loc)
+		switch frame {
+		case "year":
+			return ts.Format("2006")
+		case "quarter":
+			return fmt.Sprintf("%d-Q%d", ts.Year(), (int(ts.Month())-1)/3+1)
+		case "month":
+			return ts.Format("2006-01")
+		case "week", "day":
+			return ts.Format("2006-01-02")
+		case "hour":
+			return ts.Format("2006-01-02T15:00")
+		case "minute":
+			return ts.Format("2006-01-02T15:04")
+		default:
+			return ts.Format(time.RFC3339)
+		}
+	}
 }

@@ -500,7 +500,7 @@ Malloy risks: 0.0.x versioning, the structured query interface is marked work-in
 
 **S1 result (2026-10-12, PostgreSQL): Malloy confirmed by the owner.** Malloy 17/21 out of the box, 19/21 counting the two query-generation workarounds below. MetricFlow 19/21, but only after upstream model denormalisation (12/21 before). Malloy is confirmed on four conditions:
 
-1. Hareno's planner rejects grain-unsafe queries before compiling.
+1. Hareno's planner rejects grain-unsafe queries before compiling: a sum or average grouped by a dimension reached through a one-to-many join below the measure's grain, unless an allocation rule exists. Counts, distinct counts, min and max are allowed: split that way they keep a membership meaning and are not additive, and every total is recomputed (P2-03, `internal/model`).
 2. The generator emits guarded division and null-preserving sums.
 3. The Postgres fan-out-safe sum's `DOUBLE PRECISION` cast is fixed upstream, carried meanwhile as a vendored patch.
 4. Time buckets are rendered in business time by Go.

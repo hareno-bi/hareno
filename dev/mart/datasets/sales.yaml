@@ -1,0 +1,53 @@
+# Dataset model document for the dev mart: complete orders, at order grain, with their lines.
+# Admin-authored; Hareno generates the Malloy model from it (internal/model). Measures follow
+# dev/mart/known-answers.sql.
+name: sales
+connection: mart
+timezone: Asia/Hong_Kong
+root: orders
+tables:
+  orders:
+    table: mart.fact_order
+    primary_key: order_id
+    where: status = 'complete'
+  customers:
+    table: mart.dim_customer
+    primary_key: customer_id
+  regions:
+    table: mart.dim_region
+    primary_key: region_id
+  lines:
+    table: mart.fact_order_line
+    columns:
+      line_revenue: quantity * unit_price * (1 - coalesce(discount, 0))
+      line_discount: quantity * unit_price * coalesce(discount, 0)
+      line_cost: quantity * product.unit_cost
+  products:
+    table: mart.dim_product
+    primary_key: product_id
+joins:
+  - {name: customer, to: customers, kind: one, from_key: customer_id}
+  - {name: region, parent: customer, to: regions, kind: one, from_key: region_id}
+  - {name: line, to: lines, kind: many, from_key: order_id}
+  - {name: product, parent: line, to: products, kind: one, from_key: product_id}
+dimensions:
+  order_id: order_id
+  ordered_at: ordered_at
+  order_month: ordered_at.month
+  region_name: customer.region.region_name
+  customer_name: customer.customer_name
+  segment: customer.segment
+  category: line.product.category
+  product_name: line.product.product_name
+measures:
+  order_count: {count: "*"}
+  line_count: {count: line}
+  customer_count: {count_distinct: customer_id}
+  shipping: {sum: shipping_cost}
+  avg_shipping: {avg: shipping_cost}
+  revenue: {sum: line.line_revenue}
+  discount_amount: {sum: line.line_discount}
+  cost: {sum: line.line_cost}
+  profit: {expr: "revenue - cost"}
+  margin_pct: {ratio: [profit, revenue]}
+  aov: {ratio: [revenue, order_count]}
