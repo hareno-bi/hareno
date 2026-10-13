@@ -1,6 +1,8 @@
 # Phase 1 gate review
 
-Prepared: 2026-10-13, for the owner's review. Gate (PROJECT-PLAN.md, Phase 1): confirm or replace Malloy; confirm Kiban conditions or record fallbacks; recalibrate Phase 2–4 durations. Evidence: `spikes/s1`–`s4/FINDINGS.md`.
+Prepared: 2026-10-13, for the owner's review.
+
+**Decision (owner, 2026-10-13): passed.** All five decisions below approved as recommended. Phase 2 started; tasks in PROJECT-PLAN.md. Gate (PROJECT-PLAN.md, Phase 1): confirm or replace Malloy; confirm Kiban conditions or record fallbacks; recalibrate Phase 2–4 durations. Evidence: `spikes/s1`–`s4/FINDINGS.md`.
 
 ## Recommendation
 
