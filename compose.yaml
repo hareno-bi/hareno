@@ -29,5 +29,15 @@ services:
       interval: 2s
       retries: 30
 
+  cache:
+    image: valkey/valkey:8.1.4
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]  # result cache: nothing to persist
+    ports:
+      - "127.0.0.1:55435:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      retries: 30
+
 volumes:
   appdb:

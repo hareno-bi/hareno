@@ -4,6 +4,7 @@
 |---|---|---|
 | Dev data mart | `docker compose up -d` | `localhost:55433`, see [mart/README.md](mart/README.md) |
 | App database | `docker compose up -d` | `localhost:55434`, db/user `hareno`, password `dev` |
+| Result cache (Valkey 8.1) | `docker compose up -d` | `localhost:55435`, no auth, not persisted |
 | Kiban v0.1.2 | `dev/kiban/up.sh` | gateway `http://localhost:55440`, Keycloak `localhost:55441` |
 
 `dev/mart/check.sh` runs the mart's known-answer checks.

@@ -216,7 +216,19 @@ For ordinary dashboards, allow independent chart completion with visible timesta
 
 ### 8.2 Shared results
 
-Use a shared result cache for multi-replica deployments and coalesce equivalent in-flight work. Proposed cache: Valkey; exact selection remains open.
+Use a shared result cache for multi-replica deployments and coalesce equivalent in-flight work. Cache: Valkey (decided after S4; dev instance in `compose.yaml`).
+
+S4 (2026-10-13) refresh rules (evidence: `spikes/s4/FINDINGS.md`):
+- One `MGET` per report refresh.
+- In-flight deduplication per replica (singleflight) and across replicas (a Valkey `SET NX` lock).
+- Stale-while-revalidate below a hard age ceiling, with stale results marked in the UI.
+- Change detection where the mart has a load watermark (below).
+- A source-concurrency cap per connection.
+- With these, source queries per second are bounded by distinct queries ÷ cache TTL, independent of viewer count: 5,000 viewers ran at 36.8 queries/s against a bound of 37.5. Without a cache, 100 viewers saturated the source.
+
+**Refresh on change, not on a timer, where the mart provides a load watermark.** Each replica polls one cheap watermark query per connection (for example `SELECT max(loaded_at)` from a load log) every second on a reserved connection. Cached results are keyed to the watermark they were computed under; when it moves, charts refresh once (stale-while-revalidate) and stay cached until the next load. Source load becomes distinct queries ÷ load interval, plus one check per second per replica. S4 rows 13–15: loads every 60 s cost 2.5 queries/s instead of 36.8, and viewers saw a load 4.7 s (p50) / 7.3 s (p95) after it landed. On a source too slow for timer-based refresh, change detection settles by itself: the delay becomes the time to recompute the report (25 s p95 in row 15). This is the approach Looker (datagroups) and Power BI (automatic page refresh with change detection) take. A watermark is the client's to provide (§2); without one, a connection uses timer-based refresh with the TTL above.
+
+Overload control is an admin-set minimum refresh interval per connection (the TTL for timer-based connections) plus the source-concurrency cap. Hareno does not estimate report cost at publish time; add that only if a client's reports outgrow these two controls. Row-policy scopes should be coarse: a scope per user removes result sharing.
 
 Cache identity includes connection, dataset revision, query, filters, time context and effective data-access scope. Different users may share results only when their effective scopes are equivalent. Check current object access before returning a cache hit, and resolve current row/column policy before selecting the entry.
 
@@ -228,7 +240,7 @@ Query timestamp and source freshness are distinct. A trustworthy source-data fre
 
 Illustrative request count: 100 viewers × 10 charts ÷ 5 seconds = 200 chart requests/second before batching, sharing or deduplication. This is not a measured project workload or a promise of required capacity.
 
-No decision cache is proposed for Kiban initially. Its decision latency and throughput must be measured alongside query and rendering performance.
+Kiban decisions are cached for a bounded TTL (§10.4 item 13), after S2 measured about 30 ms per single check and a ceiling near 100 checks/s on the dev host.
 
 ## 9. Security semantics
 
