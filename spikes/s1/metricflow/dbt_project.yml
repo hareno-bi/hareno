@@ -1,0 +1,11 @@
+name: hareno_s1
+version: "0.0.1"
+profile: hareno_s1
+model-paths: ["models"]
+models:
+  hareno_s1:
+    +materialized: view
+    +grants:
+      select: ["hareno_reader"]
+on-run-end:
+  - "GRANT USAGE ON SCHEMA {{ target.schema }} TO hareno_reader"

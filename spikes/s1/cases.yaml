@@ -1,0 +1,508 @@
+# S1 golden cases. Expected values: dev/mart/known-answers.sql (hand-computed), except C20-C21.
+# Each engine entry: queries (each with q and expect rows, or reject: true) or unsupported: reason.
+# Numbers compare at the expected value's decimal scale; "2026-01"-style strings match date prefixes.
+
+- id: C01
+  title: total revenue (complete)
+  malloy:
+    queries:
+      - q: "run: complete -> { aggregate: revenue }"
+        expect: [[587.75]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 587.75
+
+- id: C02
+  title: orders / distinct customers / lines
+  malloy:
+    queries:
+      - q: "run: complete -> { aggregate: order_count, customer_count, line_count }"
+        expect: [[7, 4, 13]]
+  metricflow:
+    queries:
+    - q: --metrics order_count,customer_count,line_count --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 7
+        - 4
+        - 13
+
+- id: C03
+  title: revenue by region
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: region_name; aggregate: revenue; order_by: region_name }"
+        expect: [[North, 238.50], [South, 175.50], [West, 173.75]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --group-by sales_order__customer__region_name --order sales_order__customer__region_name --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - North
+        - '238.50'
+      - - South
+        - '175.50'
+      - - West
+        - '173.75'
+
+- id: C04
+  title: fan-out trap, order-grain shipping with line revenue in one query
+  malloy:
+    queries:
+      - q: "run: complete -> { aggregate: shipping, revenue }"
+        expect: [[42.75, 587.75]]
+  metricflow:
+    queries:
+    - q: --metrics shipping,revenue --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '42.75'
+        - '587.75'
+
+- id: C05
+  title: shipping by region (dimension on the one side)
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: region_name; aggregate: shipping; order_by: region_name }"
+        expect: [[North, 15.50], [South, 19.25], [West, 8.00]]
+  metricflow:
+    queries:
+    - q: --metrics shipping --group-by customer__region__region_name --order customer__region__region_name --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - North
+        - '15.50'
+      - - South
+        - '19.25'
+      - - West
+        - '8.00'
+
+- id: C06
+  title: shipping by product category must be rejected (no allocation rule)
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: category; aggregate: shipping }"
+        reject: true
+  metricflow:
+    queries:
+    - q: --metrics shipping --group-by product__category --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      reject: true
+
+- id: C07
+  title: null measure, avg ignores nulls, count(column) vs count(*)
+  malloy:
+    queries:
+      - q: "run: complete -> { aggregate: avg_shipping, order_count, orders_with_shipping }"
+        expect: [[7.1250, 7, 6]]
+  metricflow:
+    queries:
+    - q: --metrics avg_shipping,order_count,orders_with_shipping --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '7.1250'
+        - 7
+        - 6
+
+- id: C08
+  title: null dimension value is its own group
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: customer.segment; aggregate: revenue; order_by: segment }"
+        expect: [[Enterprise, 186.00], [SMB, 226.25], [null, 175.50]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --group-by sales_order__customer__segment --order sales_order__customer__segment --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - Enterprise
+        - '186.00'
+      - - SMB
+        - '226.25'
+      - - null
+        - '175.50'
+
+- id: C09
+  title: distinct count is not additive across categories
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: category; aggregate: customer_count; order_by: category }"
+        expect: [[Accessories, 2], [Hardware, 4], [Services, 3]]
+      - q: "run: complete -> { aggregate: customer_count }"
+        expect: [[4]]
+  metricflow:
+    queries:
+    - q: --metrics line_customer_count --group-by product__category --order product__category --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - Accessories
+        - 2
+      - - Hardware
+        - 4
+      - - Services
+        - 3
+    - q: --metrics customer_count --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 4
+
+- id: C10
+  title: ratio totals recompute (margin %)
+  malloy:
+    queries:
+      - q: "run: complete -> { group_by: category; aggregate: margin_pct; order_by: category }"
+        expect: [[Accessories, 0.6000], [Hardware, 0.3444], [Services, 1.0000]]
+      - q: "run: complete -> { aggregate: margin_pct, profit }"
+        expect: [[0.6861, 403.25]]
+  metricflow:
+    queries:
+    - q: --metrics margin_pct --group-by product__category --order product__category --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - Accessories
+        - '0.6000'
+      - - Hardware
+        - '0.3444'
+      - - Services
+        - '1.0000'
+    - q: --metrics margin_pct,profit --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '0.6861'
+        - '403.25'
+
+- id: C11
+  title: null discount means none (gross / discount / net)
+  malloy:
+    queries:
+      - q: "run: complete -> { aggregate: gross_revenue, discount_amount, revenue }"
+        expect: [[616.25, 28.50, 587.75]]
+  metricflow:
+    queries:
+    - q: --metrics gross_revenue,discount_amount,revenue --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '616.25'
+        - '28.50'
+        - '587.75'
+
+- id: C12
+  title: time zone, revenue by business-time month (order 105 moves to April)
+  malloy:
+    queries:
+      - q: |
+          run: complete -> {
+            timezone: 'Asia/Hong_Kong'
+            group_by: m is ordered_at.month
+            aggregate: revenue
+            order_by: m
+          }
+        expect: [[2026-01, 86.00], [2026-02, 152.50], [2026-03, 85.50], [2026-04, 93.75], [2026-05, 170.00]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --group-by metric_time__month --order metric_time__month --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 2026-01
+        - '86.00'
+      - - 2026-02
+        - '152.50'
+      - - 2026-03
+        - '85.50'
+      - - 2026-04
+        - '93.75'
+      - - 2026-05
+        - '170.00'
+
+- id: C13
+  title: fiscal year/quarter via dim_date on the business-time date
+  malloy:
+    queries:
+      - q: |
+          run: complete extend {
+            join_one: cal is dates on ordered_at::date = cal.date_key
+          } -> {
+            timezone: 'Asia/Hong_Kong'
+            group_by: cal.fiscal_year, cal.fiscal_quarter
+            aggregate: revenue
+            order_by: fiscal_year, fiscal_quarter
+          }
+        expect: [[2026, 4, 324.00], [2027, 1, 263.75]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --group-by metric_time__fiscal_quarter --order metric_time__fiscal_quarter --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - FY2026Q4
+        - '324.00'
+      - - FY2027Q1
+        - '263.75'
+
+- id: C14
+  title: month-over-month change, first month NULL
+  malloy:
+    queries:
+      - q: |
+          run: complete -> {
+            timezone: 'Asia/Hong_Kong'
+            group_by: m is ordered_at.month
+            aggregate: revenue
+            calculate: change is revenue - lag(revenue)
+            order_by: m
+          }
+        expect:
+          - [2026-01, 86.00, null]
+          - [2026-02, 152.50, 66.50]
+          - [2026-03, 85.50, -67.00]
+          - [2026-04, 93.75, 8.25]
+          - [2026-05, 170.00, 76.25]
+  metricflow:
+    queries:
+    - q: --metrics revenue,revenue_change --group-by metric_time__month --order metric_time__month --end-time 2026-05-31 --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 2026-01
+        - '86.00'
+        - null
+      - - 2026-02
+        - '152.50'
+        - '66.50'
+      - - 2026-03
+        - '85.50'
+        - '-67.00'
+      - - 2026-04
+        - '93.75'
+        - '8.25'
+      - - 2026-05
+        - '170.00'
+        - '76.25'
+
+- id: C15
+  title: running total by month
+  malloy:
+    queries:
+      - q: |
+          run: complete -> {
+            timezone: 'Asia/Hong_Kong'
+            group_by: m is ordered_at.month
+            aggregate: revenue
+            calculate: running is sum_cumulative(revenue)
+            order_by: m
+          }
+        expect:
+          - [2026-01, 86.00, 86.00]
+          - [2026-02, 152.50, 238.50]
+          - [2026-03, 85.50, 324.00]
+          - [2026-04, 93.75, 417.75]
+          - [2026-05, 170.00, 587.75]
+  metricflow:
+    queries:
+    - q: --metrics revenue,revenue_running --group-by metric_time__month --order metric_time__month --end-time 2026-05-31 --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - 2026-01
+        - '86.00'
+        - '86.00'
+      - - 2026-02
+        - '152.50'
+        - '238.50'
+      - - 2026-03
+        - '85.50'
+        - '324.00'
+      - - 2026-04
+        - '93.75'
+        - '417.75'
+      - - 2026-05
+        - '170.00'
+        - '587.75'
+
+- id: C16
+  title: matrix region x category with row, column and grand totals
+  malloy:
+    queries:
+      - q: |
+          run: complete -> {
+            group_by: region_name, category
+            aggregate:
+              revenue
+              region_total is all(revenue, region_name)
+              category_total is all(revenue, category)
+              grand_total is all(revenue)
+            order_by: region_name, category
+          }
+        expect:
+          - [North, Accessories, 12.50, 238.50, 16.25, 587.75]
+          - [North, Hardware, 126.00, 238.50, 271.50, 587.75]
+          - [North, Services, 100.00, 238.50, 300.00, 587.75]
+          - [South, Hardware, 95.50, 175.50, 271.50, 587.75]
+          - [South, Services, 80.00, 175.50, 300.00, 587.75]
+          - [West, Accessories, 3.75, 173.75, 16.25, 587.75]
+          - [West, Hardware, 50.00, 173.75, 271.50, 587.75]
+          - [West, Services, 120.00, 173.75, 300.00, 587.75]
+  metricflow:
+    note: 'no ROLLUP: one query per totals level'
+    queries:
+    - q: --metrics revenue --group-by sales_order__customer__region_name,product__category --order sales_order__customer__region_name,product__category --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - North
+        - Accessories
+        - '12.50'
+      - - North
+        - Hardware
+        - '126.00'
+      - - North
+        - Services
+        - '100.00'
+      - - South
+        - Hardware
+        - '95.50'
+      - - South
+        - Services
+        - '80.00'
+      - - West
+        - Accessories
+        - '3.75'
+      - - West
+        - Hardware
+        - '50.00'
+      - - West
+        - Services
+        - '120.00'
+    - q: --metrics revenue --group-by sales_order__customer__region_name --order sales_order__customer__region_name --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - North
+        - '238.50'
+      - - South
+        - '175.50'
+      - - West
+        - '173.75'
+    - q: --metrics revenue --group-by product__category --order product__category --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - Accessories
+        - '16.25'
+      - - Hardware
+        - '271.50'
+      - - Services
+        - '300.00'
+    - q: --metrics revenue --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '587.75'
+
+- id: C17
+  title: average order value by customer incl. one with no orders; total is not an average of averages
+  malloy:
+    queries:
+      - q: |
+          run: customers extend {
+            join_many: o is complete on customer_id = o.customer_id
+          } -> {
+            group_by: customer_name
+            aggregate: aov is o.revenue / o.order_count
+            order_by: customer_name
+          }
+        expect: [[Acme, 93.0000], [Birch, 52.5000], [Cobalt, 87.7500], [Delta, 86.8750], [Ember, null]]
+      - q: "run: complete -> { aggregate: aov }"
+        expect: [[83.9643]]
+  metricflow:
+    note: 'Ember (no orders) cannot appear: queries start from measures'
+    queries:
+    - q: --metrics aov_lines --group-by sales_order__customer__customer_name --order sales_order__customer__customer_name --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - Acme
+        - '93.0000'
+      - - Birch
+        - '52.5000'
+      - - Cobalt
+        - '87.7500'
+      - - Delta
+        - '86.8750'
+    - q: --metrics aov --where "{{ Dimension('sales_order__status') }} = 'complete'"
+      expect:
+      - - '83.9643'
+
+- id: C18
+  title: row policy (North only) applies to totals and distinct counts
+  malloy:
+    queries:
+      - q: "run: complete_north -> { aggregate: revenue, customer_count }"
+        expect: [[238.50, 2]]
+  metricflow:
+    note: 'one filter cannot span measures from two semantic models: split per model, merged by the caller'
+    queries:
+    - q: --metrics revenue --where "{{ Dimension('sales_order__status') }} = 'complete'" --where "{{ Dimension('customer__region_name') }} = 'North'"
+      expect:
+      - - '238.50'
+    - q: --metrics customer_count --where "{{ Dimension('sales_order__status') }} = 'complete'" --where "{{ Dimension('customer__region_name') }} = 'North'"
+      expect:
+      - - 2
+
+- id: C19
+  title: row policy (North only) by category
+  malloy:
+    queries:
+      - q: "run: complete_north -> { group_by: category; aggregate: revenue; order_by: category }"
+        expect: [[Accessories, 12.50], [Hardware, 126.00], [Services, 100.00]]
+  metricflow:
+    queries:
+    - q: --metrics revenue --group-by product__category --order product__category --where "{{ Dimension('sales_order__status') }} = 'complete'" --where "{{ Dimension('customer__region_name') }} = 'North'"
+      expect:
+      - - Accessories
+        - '12.50'
+      - - Hardware
+        - '126.00'
+      - - Services
+        - '100.00'
+
+- id: C20
+  title: sum over only NULL values is NULL, not 0
+  malloy:
+    queries:
+      - q: "run: complete -> { where: order_id = 106; aggregate: shipping }"
+        expect: [[null]]
+      - q: "run: complete -> { where: order_id = 106; aggregate: shipping, revenue }"
+        expect: [[null, 3.75]]
+  metricflow:
+    queries:
+    - q: --metrics shipping --where "{{ Dimension('sales_order__status') }} = 'complete'" --where "{{ Entity('sales_order') }} = 106"
+      expect:
+      - - null
+    - q: --metrics shipping,revenue --where "{{ Dimension('sales_order__status') }} = 'complete'" --where "{{ Entity('sales_order') }} = 106"
+      expect:
+      - - null
+        - '3.75'
+
+- id: C21
+  title: money precision through a fan-out-safe sum (large value)
+  malloy:
+    queries:
+      - q: |
+          source: big is mart.sql("""
+            SELECT 1 AS id, 1234567890123456.77::numeric(18,2) AS amt UNION ALL SELECT 2, 0.01
+          """) extend {
+            primary_key: id
+            join_many: dup is mart.sql("""SELECT 1 AS id UNION ALL SELECT 1 UNION ALL SELECT 2""") on id = dup.id
+          }
+          run: big -> { aggregate: total is amt.sum(), dup_rows is dup.count() }
+        expect: [[1234567890123456.78, 3]]
+  metricflow:
+    unsupported: no ad-hoc SQL sources; MetricFlow emits plain SUM over NUMERIC (no float cast)
+
+# ---- Workarounds Hareno could generate for the C17 / C20 gaps (Malloy only) ----
+
+- id: C17W
+  title: "workaround: guarded division (pick ... when denominator > 0)"
+  malloy:
+    queries:
+      - q: |
+          run: customers extend {
+            join_many: o is complete on customer_id = o.customer_id
+          } -> {
+            group_by: customer_name
+            aggregate: aov is pick o.revenue / o.order_count when o.order_count > 0 else null
+            order_by: customer_name
+          }
+        expect: [[Acme, 93.0000], [Birch, 52.5000], [Cobalt, 87.7500], [Delta, 86.8750], [Ember, null]]
+
+- id: C20W
+  title: "workaround: NULL sum when no non-null inputs (pick ... when count > 0)"
+  malloy:
+    queries:
+      - q: |
+          run: complete -> {
+            where: order_id = 106
+            aggregate:
+              shipping_or_null is pick shipping when orders_with_shipping > 0 else null
+              revenue
+          }
+        expect: [[null, 3.75]]
+      - q: |
+          run: complete -> {
+            aggregate: shipping_or_null is pick shipping when orders_with_shipping > 0 else null
+          }
+        expect: [[42.75]]

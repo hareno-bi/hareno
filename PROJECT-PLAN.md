@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: reviewed and merged. Phase 0 authorized 2026-10-12; Phase 1 spikes need explicit authorization before they start.
+Status: Phase 0 complete (SeaweedFS deferred to exports). Phase 1 spikes authorized 2026-10-12. S1 done: Malloy confirmed on four conditions, PostgreSQL only (`spikes/s1/FINDINGS.md`).
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 

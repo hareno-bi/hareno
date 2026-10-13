@@ -1,0 +1,133 @@
+version: 2
+
+models:
+  - name: mf_time_spine
+    time_spine:
+      standard_granularity_column: date_day
+      custom_granularities:
+        - name: fiscal_year
+        - name: fiscal_quarter
+    columns:
+      - name: date_day
+        granularity: day
+      - name: fiscal_year
+      - name: fiscal_quarter
+
+semantic_models:
+  - name: orders
+    model: ref('mf_order')
+    defaults:
+      agg_time_dimension: ordered_at_hkt
+    entities:
+      - {name: sales_order, type: primary, expr: order_id}
+      - {name: customer, type: foreign, expr: customer_id}
+    dimensions:
+      - {name: status, type: categorical}
+      - name: ordered_at_hkt
+        type: time
+        expr: "ordered_at AT TIME ZONE 'Asia/Hong_Kong'"
+        type_params: {time_granularity: day}
+    measures:
+      - {name: shipping, agg: sum, expr: shipping_cost}
+      - {name: avg_shipping, agg: average, expr: shipping_cost}
+      - {name: orders_with_shipping, agg: count, expr: shipping_cost}
+      - {name: order_count, agg: count, expr: order_id}
+      - {name: customer_count, agg: count_distinct, expr: customer_id}
+
+  - name: order_lines
+    model: ref('mf_order_line')
+    defaults:
+      agg_time_dimension: ordered_at_hkt
+    entities:
+      - {name: order_line, type: primary, expr: "order_id || '-' || line_no"}
+      - {name: sales_order, type: foreign, expr: order_id}
+      - {name: product, type: foreign, expr: product_id}
+    dimensions:
+      - name: ordered_at_hkt
+        type: time
+        expr: "ordered_at AT TIME ZONE 'Asia/Hong_Kong'"
+        type_params: {time_granularity: day}
+    measures:
+      - {name: revenue, agg: sum, expr: "quantity * unit_price * (1 - coalesce(discount, 0))"}
+      - {name: discount_amount, agg: sum, expr: "quantity * unit_price * coalesce(discount, 0)"}
+      - {name: cost, agg: sum, expr: "quantity * unit_cost"}
+      - {name: line_count, agg: count, expr: line_no}
+      - {name: line_customer_count, agg: count_distinct, expr: customer_id}
+      - {name: line_order_count, agg: count_distinct, expr: order_id}
+
+  - name: customers
+    model: ref('mf_customer')
+    entities:
+      - {name: customer, type: primary, expr: customer_id}
+      - {name: region, type: foreign, expr: region_id}
+    dimensions:
+      - {name: customer_name, type: categorical}
+      - {name: segment, type: categorical}
+      - {name: region_name, type: categorical}
+
+  - name: regions
+    model: ref('mf_region')
+    entities:
+      - {name: region, type: primary, expr: region_id}
+    dimensions:
+      - {name: region_name, type: categorical}
+
+  - name: products
+    model: ref('mf_product')
+    entities:
+      - {name: product, type: primary, expr: product_id}
+    dimensions:
+      - {name: category, type: categorical}
+
+metrics:
+  - {name: revenue, label: revenue, type: simple, type_params: {measure: revenue}}
+  - {name: shipping, label: shipping, type: simple, type_params: {measure: shipping}}
+  - {name: avg_shipping, label: avg_shipping, type: simple, type_params: {measure: avg_shipping}}
+  - {name: orders_with_shipping, label: orders_with_shipping, type: simple, type_params: {measure: orders_with_shipping}}
+  - {name: order_count, label: order_count, type: simple, type_params: {measure: order_count}}
+  - {name: customer_count, label: customer_count, type: simple, type_params: {measure: customer_count}}
+  - {name: line_count, label: line_count, type: simple, type_params: {measure: line_count}}
+  - {name: line_customer_count, label: line_customer_count, type: simple, type_params: {measure: line_customer_count}}
+  - {name: line_order_count, label: line_order_count, type: simple, type_params: {measure: line_order_count}}
+  - {name: discount_amount, label: discount_amount, type: simple, type_params: {measure: discount_amount}}
+  - {name: cost, label: cost, type: simple, type_params: {measure: cost}}
+  - name: gross_revenue
+    label: gross_revenue
+    type: derived
+    type_params:
+      expr: revenue + discount_amount
+      metrics: [{name: revenue}, {name: discount_amount}]
+  - name: profit
+    label: profit
+    type: derived
+    type_params:
+      expr: revenue - cost
+      metrics: [{name: revenue}, {name: cost}]
+  - name: margin_pct
+    label: margin_pct
+    type: derived
+    type_params:
+      expr: (revenue - cost) / revenue
+      metrics: [{name: revenue}, {name: cost}]
+  - name: aov
+    label: aov
+    type: ratio
+    type_params: {numerator: revenue, denominator: order_count}
+  - name: revenue_change
+    label: revenue_change
+    type: derived
+    type_params:
+      expr: revenue - revenue_prev
+      metrics:
+        - {name: revenue}
+        - {name: revenue, alias: revenue_prev, offset_window: 1 month}
+  - name: revenue_running
+    label: revenue_running
+    type: cumulative
+    type_params:
+      measure: revenue
+      cumulative_type_params: {period_agg: last}
+  - name: aov_lines
+    label: aov_lines
+    type: ratio
+    type_params: {numerator: revenue, denominator: line_order_count}

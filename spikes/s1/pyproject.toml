@@ -1,0 +1,14 @@
+[project]
+name = "hareno-s1-spike"
+version = "0"
+requires-python = ">=3.12"
+dependencies = [
+    "dbt-metricflow==0.15.0",
+    "metricflow==0.213.0",
+    "dbt-core==1.12.5",
+    "dbt-postgres==1.11.0",
+    "pyyaml",
+]
+
+[tool.uv]
+package = false
