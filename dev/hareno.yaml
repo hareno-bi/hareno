@@ -1,0 +1,16 @@
+# Hareno API configuration for the dev stack (go run ./cmd/api -config dev/hareno.yaml).
+# Dev-only credentials. Connections move to the application database in R1-4.
+kiban:
+  gateway: http://localhost:55440
+  client_id: hareno-backend
+  client_secret_file: dev/kiban/hareno-backend-secret   # written by dev/kiban/seed.sh
+connections:
+  mart:
+    company: ALPHA                 # Kiban company code that owns it
+    mode: database-enforced        # ARCHITECTURE-PLAN §5.3; fixed for the connection's life
+    gate_dsn: postgres://hareno_gate:hareno_gate@localhost:55433/mart
+    sql_role: hareno_sql
+    timeout: 30s
+    max_rows: 10000
+    scope:                         # Kiban data_scope objects mart.region.<value> (or mart.region.*)
+      region: [North, South, West]

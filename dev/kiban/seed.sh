@@ -86,6 +86,21 @@ SA_PW=$(cat secrets-in/superadmin-password)
 ensure_user "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW"
 for u in alice bob carol dave; do ensure_user "$u" "$DEV_PW"; done
 
+# register_app TOKEN: register (or re-register) the hareno app and its object types.
+#   report: viewer/editor. connection: sql_user may use the SQL editor on it.
+#   data_scope: viewer holds that row scope, e.g. mart.region.North or mart.region.* (all).
+register_app() {
+    api "$1" "$GW/api/platform/admin/apps" -d '{
+        "key": "hareno", "displayName": "Hareno", "version": "0.0.2", "serviceClientId": "hareno-backend",
+        "features": ["hareno.use"],
+        "authzFragment": {
+            "report": {"company_module": {"this": true}, "viewer": {"this": true}, "editor": {"this": true}},
+            "connection": {"company_module": {"this": true}, "sql_user": {"this": true}},
+            "data_scope": {"company_module": {"this": true}, "viewer": {"this": true}}
+        }
+    }' >/dev/null
+}
+
 seeded=$(my_companies alice)
 if [ -n "$seeded" ]; then
     echo "already seeded"
@@ -93,11 +108,7 @@ else
     echo "seeding"
     sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
 
-    api "$sa" "$GW/api/platform/admin/apps" -d '{
-        "key": "hareno", "displayName": "Hareno", "version": "0.0.1", "serviceClientId": "hareno-backend",
-        "features": ["hareno.use"],
-        "authzFragment": {"report": {"company_module": {"this": true}, "viewer": {"this": true}, "editor": {"this": true}}}
-    }' >/dev/null
+    register_app "$sa"
     api "$sa" -X POST "$GW/api/platform/admin/modules/hareno/enable" >/dev/null
 
     unit() { api_id "$sa" "$GW/api/org/admin/units" -d "$(jq -n --arg t "$1" --arg p "$2" --arg c "$3" --arg n "$4" \
@@ -140,6 +151,25 @@ client=$(kc "$KCA/clients?clientId=hareno-backend" | jq -r '.[0].id')
 kc "$KCA/clients/$client/client-secret" | jq -r .value > hareno-backend-secret
 chmod 600 hareno-backend-secret
 
+# Hareno's dev grants, every run (grants are idempotent): the app's object types are current,
+# and ALPHA's mart connection is usable with SQL by the North manager (North only) and the
+# Finance group (all regions). BETA has no access to the mart.
+sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
+register_app "$sa"
+svc=$(curl -sf "$GW/auth/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" -d grant_type=client_credentials \
+    -d client_id=hareno-backend --data-urlencode "client_secret=$(cat hareno-backend-secret)" | jq -r .access_token)
+alpha=$(api "$(login alice "$DEV_PW")" "$GW/api/org/me/companies" | jq -r '.data[] | select(.code == "ALPHA") | .id')
+north_mgr=$(api "$sa" "$GW/api/org/admin/companies/$alpha/positions" | jq -r '.data.items[] | select(.code == "NORTH_MGR") | .id')
+finance=$(api "$sa" "$GW/api/org/admin/companies/$alpha/groups" | jq -r '.data.items[] | select(.code == "FINANCE") | .id')
+api "$svc" "$GW/api/auth/grants" -d "$(jq -n --arg c "$alpha" --arg p "$north_mgr" --arg f "$finance" '
+    def anchor($t; $id): {objectType: $t, objectId: $id, relation: "company_module", subjectType: "company_module", subjectId: ($c + "/hareno")};
+    def to_pos($t; $id; $r): {objectType: $t, objectId: $id, relation: $r, subjectType: "position", subjectId: $p, subjectRelation: "holder"};
+    def to_fin($t; $id; $r): {objectType: $t, objectId: $id, relation: $r, subjectType: "group", subjectId: $f, subjectRelation: "member"};
+    {op: "grant", companyId: $c, tuples: [
+        anchor("connection"; "mart"), to_pos("connection"; "mart"; "sql_user"), to_fin("connection"; "mart"; "sql_user"),
+        anchor("data_scope"; "mart.region.North"), to_pos("data_scope"; "mart.region.North"; "viewer"),
+        anchor("data_scope"; "mart.region.*"), to_fin("data_scope"; "mart.region.*"; "viewer")]}')" >/dev/null
+
 # Verify: company membership per user, and the service client sees the enabled app.
 fail=0
 check() { if [ "$2" = "$3" ]; then echo "ok  $1"; else echo "FAIL $1: expected '$3', got '$2'"; fail=1; fi; }
@@ -161,4 +191,16 @@ check "ALPHA FINANCE members" "$(echo "$r" | jq -r '[.data[].memberDisplayName] 
 svc=$(curl -sf "$GW/auth/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" -d grant_type=client_credentials \
     -d client_id=hareno-backend --data-urlencode "client_secret=$(cat hareno-backend-secret)" | jq -r .access_token)
 check "hareno app enabled (service token)" "$(api "$svc" "$GW/api/platform/capabilities/hareno" | jq -r .data.enabled)" true
+# allowed USER OBJECT_TYPE OBJECT_ID RELATION: prints true or false for USER in their first company.
+allowed() {
+    t=$(login "$1" "$DEV_PW")
+    c=$(api "$t" "$GW/api/org/me/companies" | jq -r '.data[0].id')
+    api "$t" "$GW/api/auth/effective-access/can" -d "$(jq -n --arg c "$c" --arg t "$2" --arg i "$3" --arg r "$4" \
+        '{featureKey: "hareno.use", moduleKey: "hareno", companyId: $c, object: {type: $t, id: $i}, relation: $r}')" | jq -r .data.allowed
+}
+check "alice sql on mart"     "$(allowed alice connection mart sql_user)" true
+check "alice scope North"     "$(allowed alice data_scope mart.region.North viewer)" true
+check "alice scope all"       "$(allowed alice data_scope 'mart.region.*' viewer)" false
+check "bob scope all"         "$(allowed bob data_scope 'mart.region.*' viewer)" true
+check "carol sql on mart"     "$(allowed carol connection mart sql_user)" false
 exit $fail
