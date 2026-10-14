@@ -16,7 +16,7 @@ const fromHash = (): { page: Page; id?: string } => {
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
 // demo: test accounts, listed only when the API's configuration has them (dev and demo stacks).
-type Account = { user: string; password: string; note: string; company: string; via: string; sql: boolean; rows: string; shareData: boolean }
+type Account = { user: string; password: string; remarks: string[]; company: string; via: string; sql: boolean; rows: string; shareData: boolean }
 function useUser() {
   const [user, setUser] = useState<string | null | undefined>(undefined)
   const [demo, setDemo] = useState<Account[]>([])
@@ -106,7 +106,7 @@ function SignIn({ demo }: { demo: Account[] }) {
               <thead>
                 <tr>
                   <th>User</th><th>Password</th><th>Company</th><th>Access comes from</th>
-                  <th>Builds dashboards</th><th>Rows they see</th><th>May share their data</th><th>In short</th><th />
+                  <th>Builds dashboards</th><th>Rows they see</th><th>May share their data</th><th>Remarks</th><th />
                 </tr>
               </thead>
               <tbody>
@@ -119,7 +119,7 @@ function SignIn({ demo }: { demo: Account[] }) {
                     <td>{yes(a.sql)}</td>
                     <td>{a.rows === 'None' ? <span className="muted">None</span> : a.rows}</td>
                     <td>{yes(a.shareData)}</td>
-                    <td>{a.note}</td>
+                    <td><ul className="remarks">{a.remarks?.map((r) => <li key={r}>{r}</li>)}</ul></td>
                     <td><a className="button" href={`/auth/login?user=${encodeURIComponent(a.user)}`}>Sign in as {a.user}</a></td>
                   </tr>
                 ))}

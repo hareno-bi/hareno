@@ -150,3 +150,5 @@ dialog.share h3 { margin-top: 14px; }
 .accounts table.sample tr.group td { border-top: 2px solid var(--muted); }
 .accounts table.sample td:first-child { font-weight: 600; }
 .accounts td code { white-space: nowrap; }
+.accounts ul.remarks { margin: 0; padding-left: 16px; text-align: left; }
+.accounts ul.remarks li { margin: 1px 0; }

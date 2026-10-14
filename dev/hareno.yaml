@@ -11,14 +11,49 @@ signin:                            # as the browser reaches them, through the de
   public_url: http://${HARENO_PUBLIC_HOST}:55450
   kiban_url: http://${HARENO_PUBLIC_HOST}:55451
   demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
-    - {user: alice, password: hareno-dev-password, company: ALPHA, via: "Position: North Regional Manager", sql: true, rows: North, share_data: true,
-       note: "Sees North rows only. May share her data."}
-    - {user: bob, password: hareno-dev-password, company: ALPHA, via: "Group: Finance", sql: true, rows: "All regions", share_data: false,
-       note: "Sees all regions."}
-    - {user: erin, password: hareno-dev-password, company: ALPHA, via: "None", sql: false, rows: "None", share_data: false,
-       note: "Same company, no data access. Sees only what is shared with her."}
-    - {user: carol, password: hareno-dev-password, company: BETA, via: "None in ALPHA", sql: false, rows: "None", share_data: false,
-       note: "Another company. Sees no data source."}
+    - user: alice
+      password: hareno-dev-password
+      company: ALPHA
+      via: "Position: North Regional Manager"
+      sql: true
+      rows: North
+      share_data: true
+      remarks:
+        - Limited rows (North only)
+        - Builds and publishes dashboards
+        - The only one who may share her data ("Sees my data")
+    - user: bob
+      password: hareno-dev-password
+      company: ALPHA
+      via: "Group: Finance"
+      sql: true
+      rows: All regions
+      share_data: false
+      remarks:
+        - All rows; compare with alice on the same dashboard
+        - Builds dashboards, but may not share his data
+    - user: erin
+      password: hareno-dev-password
+      company: ALPHA
+      via: None
+      sql: false
+      rows: None
+      share_data: false
+      remarks:
+        - Same company, no data access of her own
+        - Tests sharing; sees only what is shared with her
+        - Shared by alice with "Sees my data", she sees North
+    - user: carol
+      password: hareno-dev-password
+      company: BETA
+      via: None in ALPHA
+      sql: false
+      rows: None
+      share_data: false
+      remarks:
+        - Another company
+        - Tests the wall between companies
+        - Can never see ALPHA dashboards, even if someone tries to share
   demo_data:                       # the sample data table on the sign-in page. Never in production.
     connection: mart
     sql: |

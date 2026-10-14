@@ -46,14 +46,14 @@ type Signin struct {
 // Account is a test account listed on the sign-in page of a dev or demo stack, with the access
 // the seed gives it (as documentation for testers: Kiban decides).
 type Account struct {
-	User      string `json:"user" yaml:"user"`
-	Password  string `json:"password" yaml:"password"`
-	Note      string `json:"note" yaml:"note"`            // what the tester should see
-	Company   string `json:"company" yaml:"company"`      // Kiban company code
-	Via       string `json:"via" yaml:"via"`              // the position or group their access comes from
-	SQL       bool   `json:"sql" yaml:"sql"`              // may use the dashboard editor
-	Rows      string `json:"rows" yaml:"rows"`            // their row scope, e.g. "North"
-	ShareData bool   `json:"shareData" yaml:"share_data"` // may share dashboards showing their data
+	User      string   `json:"user" yaml:"user"`
+	Password  string   `json:"password" yaml:"password"`
+	Remarks   []string `json:"remarks" yaml:"remarks"`      // what the account is for, in short points
+	Company   string   `json:"company" yaml:"company"`      // Kiban company code
+	Via       string   `json:"via" yaml:"via"`              // the position or group their access comes from
+	SQL       bool     `json:"sql" yaml:"sql"`              // may use the dashboard editor
+	Rows      string   `json:"rows" yaml:"rows"`            // their row scope, e.g. "North"
+	ShareData bool     `json:"shareData" yaml:"share_data"` // may share dashboards showing their data
 }
 
 type session struct {
