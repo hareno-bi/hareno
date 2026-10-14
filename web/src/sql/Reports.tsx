@@ -61,8 +61,10 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
 
 type Published = { revision: number; publishedAt: string; body: Dash }
 // One tile's result: rows (perhaps the last good ones, marked stale) or only an error.
-type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string }
-type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer' }
+type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[] }
+type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]> }
+// Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
+type Filters = Record<string, string>
 
 const EVERY = 5000 // dashboards refresh every five seconds while visible (ARCHITECTURE-PLAN §8.1)
 const time = (s: string) => new Date(s).toLocaleTimeString()
@@ -76,14 +78,23 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
   const [checked, setChecked] = useState<Date | null>(null) // last successful refresh
   const [failed, setFailed] = useState<string | null>(null) // why the last refresh failed
   const [error, setError] = useState<string | null>(null)
+  const [filters, setFilters] = useState<Filters>({})
   const busy = useRef(false)
+  const again = useRef(false) // filters changed during a refresh: refresh once more after it
+  const current = useRef(filters) // for the poll, which keeps the first render's refresh
+  current.current = filters
 
   // refresh asks for every tile; the server answers from its cache unless the data has changed.
   const refresh = async () => {
-    if (busy.current) return // never overlap
+    if (busy.current) {
+      again.current = true // never overlap
+      return
+    }
     busy.current = true
+    const sent = current.current
     try {
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: '{}' })
+      const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
+      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -95,7 +106,23 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
       setFailed('Hareno is not reachable.')
     } finally {
       busy.current = false
+      if (again.current || sent !== current.current) {
+        again.current = false
+        refresh()
+      }
     }
+  }
+  const filter = (column: string, value: string | null) => {
+    const next = { ...current.current }
+    if (value === null) delete next[column]
+    else next[column] = value
+    current.current = next
+    setFilters(next)
+    refresh()
+  }
+  // a click on a chart filters by what was clicked, or clears that filter if it was already set
+  const pick = (column: string, value: string) => {
+    if (value !== '(null)') filter(column, current.current[column] === value ? null : value)
   }
 
   useEffect(() => {
@@ -144,16 +171,22 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           ? `You are seeing the data of the person who shared this dashboard with you.${report.canExport ? ' Downloads hold your own rows only.' : ''}`
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
+      <FilterBar columns={[...new Set([...(pub.body.filters ?? []), ...Object.keys(filters)])]} filters={filters}
+        options={run?.options ?? {}} offered={pub.body.filters ?? []} set={filter} />
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
           const res = run?.tiles[i]
           const name = t.title || `Tile ${i + 1}`
+          const not = res?.columns ? Object.keys(filters).filter((c) => !res.filtered?.includes(c)) : []
+          const mine = Object.fromEntries((res?.filtered ?? []).map((c) => [c, [filters[c]]]))
+          const csv = `/api/reports/${id}/tiles/${i}/csv` + (res?.filtered?.length ? `?filters=${encodeURIComponent(JSON.stringify(mine))}` : '')
           return (
             <section key={i} className={'card tile' + (t.wide ? ' wide' : '') + (res?.stale ? ' is-stale' : '')} aria-label={name}>
               {t.title && <header><h3>{t.title}</h3></header>}
+              {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.join(', ')}: this tile has no such column.</p>}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
-                : <TileOutput result={res as Result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />}
+                : <TileOutput result={res as Result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
               {res?.columns && (
                 <p className="as-of muted">
                   <span>
@@ -162,7 +195,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
                     {res.asOf && ` · queried ${time(res.ranAt!)}`}
                   </span>
                   {report.canExport
-                    ? <a href={`/api/reports/${id}/tiles/${i}/csv`} download
+                    ? <a href={csv} download
                         title={run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh'}>Download CSV</a>
                     : <button disabled title="You may not download data from this source">Download CSV</button>}
                 </p>
@@ -171,6 +204,32 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// FilterBar shows a choice per filter column: the bar's own, and any added by clicking a chart
+// (those can be removed). Choices are the values in the viewer's own results.
+function FilterBar({ columns, filters, options, offered, set }: {
+  columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]
+  set: (column: string, value: string | null) => void
+}) {
+  if (!columns.length) return <p className="note muted">Click a bar or slice in a chart to filter the other tiles by it.</p>
+  return (
+    <div className="toolbar filter-bar" role="group" aria-label="Filters">
+      {columns.map((c) => (
+        <span key={c} className={'filter' + (filters[c] !== undefined ? ' on' : '')}>
+          <label>{c}{' '}
+            <select value={filters[c] ?? ''} onChange={(e) => set(c, e.target.value === '' ? null : e.target.value)}>
+              <option value="">All</option>
+              {[...new Set([...(options[c] ?? []), ...(filters[c] !== undefined ? [filters[c]] : [])])].map((v) => <option key={v}>{v}</option>)}
+            </select>
+          </label>
+          {!offered.includes(c) && <button onClick={() => set(c, null)} aria-label={`Remove the ${c} filter`} title="Remove filter">×</button>}
+        </span>
+      ))}
+      {Object.keys(filters).length > 0 && <button onClick={() => Object.keys(filters).forEach((c) => set(c, null))}>Clear filters</button>}
+      <span className="muted">Tip: click a bar or slice to filter by it.</span>
     </div>
   )
 }

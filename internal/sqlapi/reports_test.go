@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -206,6 +207,10 @@ func TestReports(t *testing.T) {
 	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Stale", regions), "version": 1})
 	expect("save from an old version", st, 409, b)
 
+	bad := draft("Filters", regions)
+	bad["filters"] = []string{"region_name", "region_name"}
+	st, b = call("alice", "PUT", path, map[string]any{"draft": bad, "version": 2})
+	expect("save with a filter listed twice", st, 400, b)
 	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Broken", regions, "SELECT nope FROM nowhere"), "version": 2})
 	expect("save broken SQL (drafts may be broken)", st, 200, b)
 	st, b = call("alice", "POST", path+"/publish", map[string]any{"version": 3})
@@ -297,9 +302,13 @@ func TestReports(t *testing.T) {
 		t.Errorf("erin with alice's data sees %v", b)
 	}
 	// Downloads need exporter, asked fresh each time, and hold the downloader's own rows only.
-	download := func(user string, tile int) (int, string, http.Header) {
+	download := func(user string, tile int, filters ...string) (int, string, http.Header) {
 		t.Helper()
-		r := httptest.NewRequest("GET", fmt.Sprintf("%s/tiles/%d/csv", path, tile), nil)
+		u := fmt.Sprintf("%s/tiles/%d/csv", path, tile)
+		if len(filters) > 0 {
+			u += "?filters=" + url.QueryEscape(filters[0])
+		}
+		r := httptest.NewRequest("GET", u, nil)
 		r.Header.Set("Authorization", "Bearer "+user)
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
@@ -332,6 +341,42 @@ func TestReports(t *testing.T) {
 	if st, b = call("alice", "GET", path, nil); b["canExport"] != true {
 		t.Errorf("alice's report: %v", b)
 	}
+	// Filters narrow the tiles with that column, and never widen what the viewer sees.
+	filtered := func(user string, filters map[string][]string) map[string]any {
+		t.Helper()
+		st, b := call(user, "POST", path+"/run", map[string]any{"filters": filters})
+		expect(user+" runs filtered", st, 200, b)
+		return b
+	}
+	tile := func(b map[string]any, i int) string {
+		t := b["tiles"].([]any)[i].(map[string]any)
+		r, _ := json.Marshal(t["rows"])
+		return fmt.Sprintf("%s %v%v", r, t["filtered"], t["error"])
+	}
+	b = filtered("bob", map[string][]string{"region_name": {"North", "West"}, "nowhere": {"x"}})
+	if tile(b, 0) != `[["North"],["West"]] [region_name]<nil>` || tile(b, 1) != `[[3]] <nil><nil>` {
+		t.Errorf("bob filtered: %s | %s", tile(b, 0), tile(b, 1))
+	}
+	if o, _ := json.Marshal(b["options"]); string(o) != `{"nowhere":[],"region_name":["North","South","West"]}` {
+		t.Errorf("bob's choices: %s", o)
+	}
+	b = filtered("alice", map[string][]string{"region_name": {"South"}})
+	if tile(b, 0) != `[] [region_name]<nil>` {
+		t.Errorf("alice filtered to South: %s", tile(b, 0))
+	}
+	if o, _ := json.Marshal(b["options"]); string(o) != `{"region_name":["North"]}` {
+		t.Errorf("alice's choices: %s", o)
+	}
+	st, b = call("bob", "POST", path+"/run", map[string]any{"filters": map[string]any{"region_name": "North"}})
+	expect("filter values not a list", st, 400, b)
+	st, b = call("bob", "POST", path+"/run", map[string]any{"filters": map[string]any{"region_name": []string{}}})
+	expect("filter without values", st, 400, b)
+	if st, csv, _ = download("bob", 0, `{"region_name":["West"]}`); csv != bom+"region_name\nWest\n" {
+		t.Errorf("bob downloads filtered: %d %q", st, csv)
+	}
+	st, _, _ = download("bob", 0, `{"region_name":"West"}`)
+	expect("download with a bad filter", st, 400, nil)
+
 	f.Revoke("c-alpha", "connection", "mart", "exporter", "bob")
 	st, _, _ = download("bob", 0) // no tick: a revoked exporter stops the next download
 	expect("download after exporter is revoked", st, 403, nil)

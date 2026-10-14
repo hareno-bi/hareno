@@ -40,7 +40,7 @@ const saveable = (t: TileDef): TileDef => ({
   chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split },
 })
 // same compares drafts whatever their key order (the database keeps its own)
-const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable) })
+const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable), filters: d.filters ?? [] })
 const json = { 'Content-Type': 'application/json' }
 
 export default function Editor({ reportId, style, vars, themeKey, fontsReady, onSignedOut }: {
@@ -52,6 +52,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   // and the draft as last saved (to show unsaved changes)
   const [id, setId] = useState(reportId)
   const [title, setTitle] = useState('')
+  const [filters, setFilters] = useState<string[]>([])
   const [tiles, setTiles] = useState<Edit[]>(() => (reportId ? [] : [editing(firstTile(), true)]))
   const [version, setVersion] = useState(0)
   const [published, setPublished] = useState<number | null>(null)
@@ -82,6 +83,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       }
       const d: Dash = body.draft
       setTitle(d.title)
+      setFilters(d.filters ?? [])
       setTiles(d.tiles.map((t) => editing(t)))
       setConnection(body.connection)
       setVersion(body.version)
@@ -91,7 +93,9 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
     }, () => setError('Hareno is not reachable.'))
   }, [reportId, onSignedOut])
 
-  const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable) }
+  const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable), filters }
+  // filter bar candidates: the text columns of the tiles' results, and those already chosen
+  const columns = [...new Set([...filters, ...tiles.flatMap((t) => t.result?.columns.filter((_, i) => !isNum(t.result!, i)) ?? [])])]
   const dirty = same(draft) !== saved
 
   const update = (key: number, p: Partial<Edit>) => setTiles((ts) => ts.map((t) => (t.key === key ? { ...t, ...p } : t)))
@@ -220,6 +224,18 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
         </select>
         <span className="muted">Ctrl+Enter in a query runs that tile</span>
       </div>
+      <fieldset className="toolbar filter-pick">
+        <legend>Filter bar</legend>
+        {columns.length === 0 && <span className="muted">Run the tiles to choose columns.</span>}
+        {columns.map((c) => (
+          <label key={c}>
+            <input type="checkbox" checked={filters.includes(c)} disabled={!filters.includes(c) && filters.length >= 10}
+              onChange={(e) => setFilters((f) => (e.target.checked ? [...f, c] : f.filter((x) => x !== c)))} />
+            {' '}{c}
+          </label>
+        ))}
+        <span className="muted">A filter narrows every tile that has that column. Viewers can also click a chart to filter.</span>
+      </fieldset>
       {error && <div className="card sql-error" role="alert">{error}</div>}
       <div className="grid dash-grid">
         {tiles.map((t, i) => (
