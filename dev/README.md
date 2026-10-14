@@ -56,6 +56,8 @@ Saved reports are dashboards: a title and tiles, each its own SQL query shown as
 - **Sharing a viewer the sharer's data** needs `data_sharer` on the connection. The viewer then sees the sharer's rows (`internal/sqlapi/shares.go`; ARCHITECTURE-PLAN.md §10.4 item 17).
 - **The creator** becomes the report's editor.
 
+Published dashboards refresh every 5 seconds while the tab is visible. The API caches each tile's result per connection, row scope and SQL (`internal/sqlapi/cache.go`). A cached result is reused until the connection's `watermark` query (here, `mart.etl_watermark`) returns a new value, and that query runs at most once per `refresh` interval. To watch a dashboard update, run the loader (`dev/mart/README.md`): `go run ./dev/mart/loader -every 30s -orders 1`, and `-clean` afterwards.
+
 The API keeps reports in the app database and applies its migrations at startup (`internal/appdb`). The first time it sees a configured connection, it records the connection's company and mode. If the configuration later gives a different company or mode, the API refuses to start, because both are fixed for a connection's life.
 
 The endpoint needs the dev mart and dev Kiban. `$TOKEN` is a Kiban user's access token; `seed.sh`'s `login` function shows how to get one. Every statement is written to the audit log on stdout.

@@ -255,6 +255,8 @@ S4 (2026-10-13) refresh rules (evidence: `spikes/s4/FINDINGS.md`):
 
 Overload control is the admin-set minimum refresh interval per connection (default 5 s; the watermark read interval, or the TTL for timer-based connections) plus the source-concurrency cap. Hareno does not estimate report cost at publish time; add that only if a client's reports outgrow these two controls. Row-policy scopes should be coarse: a scope per user removes result sharing.
 
+Round 1 (R1-5) ships this for SQL dashboards in process: cache key connection + row scope + SQL, watermark change detection, singleflight, and the last good result served stale for up to 10 minutes. Valkey (sharing across replicas, the cross-replica lock) follows when Hareno runs more than one replica.
+
 Cache identity includes connection, dataset revision, query, filters, time context and effective data-access scope. Different users may share results only when their effective scopes are equivalent. Check current object access before returning a cache hit, and resolve current row/column policy before selecting the entry.
 
 Define cache reuse by result age and the agreed freshness budget. Five-second polling plus a five-second cache lifetime can introduce more than five seconds of visible delay. Policy changes must alter the effective cache scope or invalidate affected results.
