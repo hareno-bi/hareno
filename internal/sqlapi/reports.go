@@ -414,20 +414,32 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
-	type tile struct {
-		*response
-		Error string `json:"error,omitempty"`
+	conn, ok := h.Connections[rep.Connection]
+	if !ok {
+		fail(w, http.StatusNotFound, "the report's connection has been removed")
+		return
+	}
+	mark := ""
+	if conn.Watermark != "" {
+		mark = h.results.mark(rep.Connection, conn.Refresh, func() (string, error) {
+			res, err := conn.Exec.Run(context.WithoutCancel(ctx), sqlexec.Scope{}, conn.Watermark)
+			if err != nil || len(res.Rows) == 0 || len(res.Rows[0]) == 0 || res.Rows[0][0] == nil {
+				return "", err
+			}
+			if t, ok := res.Rows[0][0].(time.Time); ok {
+				return t.UTC().Format(time.RFC3339Nano), nil
+			}
+			return fmt.Sprint(res.Rows[0][0]), nil
+		})
 	}
 	// ponytail: tiles run one after another; run them concurrently when dashboards get slow.
-	tiles := make([]tile, len(body.Tiles))
+	tiles := make([]tileResult, len(body.Tiles))
 	for i, t := range body.Tiles {
-		res, err := h.exec(ctx, sub, rep, scope, t.SQL)
-		if err != nil {
-			tiles[i].Error = err.Error()
-		} else {
-			tiles[i].response = res
-		}
+		tiles[i] = h.results.get(resultKey(rep.Connection, scope, t.SQL), mark, conn.Refresh, func() (*response, error) {
+			return h.exec(context.WithoutCancel(ctx), sub, rep, scope, t.SQL) // shared: one viewer leaving does not cancel it for the rest
+		})
 	}
+	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope)
 	reply(w, map[string]any{"tiles": tiles, "data": data})
 }
 

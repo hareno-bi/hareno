@@ -32,6 +32,9 @@ type Connection struct {
 	Exec    sqlexec.Exec        // runs as the connection's gate login
 	Scope   map[string][]string // scope attributes and their possible values, e.g. region: [North, South, West]
 	ID      int64               // the connection's row in the app database, which fixes its company and mode
+	// Watermark is a query returning the source's last load time, or "" if it has none (cache.go).
+	Watermark string
+	Refresh   time.Duration // minimum refresh interval: how often the watermark is read, or how long a result lasts without one
 }
 
 // Handler serves POST /api/sql.
@@ -44,6 +47,8 @@ type Handler struct {
 	People      People
 	Members     Members
 	Demo        Demo // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
+
+	results results // dashboard results (cache.go)
 }
 
 // Demo is a fixed query whose result anyone may read, signed in or not: dev and demo stacks only.

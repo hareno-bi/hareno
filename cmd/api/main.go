@@ -2,6 +2,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -53,6 +54,10 @@ type config struct {
 		Timeout time.Duration       `yaml:"timeout"`
 		MaxRows int                 `yaml:"max_rows"`
 		Scope   map[string][]string `yaml:"scope"`
+		// A query returning the source's last load time, if it records one; dashboards then refresh
+		// when it moves instead of on a timer (ARCHITECTURE-PLAN §8.2).
+		Watermark string        `yaml:"watermark"`
+		Refresh   time.Duration `yaml:"refresh"` // minimum refresh interval, default 5s
 	} `yaml:"connections"`
 }
 
@@ -177,10 +182,12 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 			return nil, nil, err
 		}
 		h.Connections[name] = sqlapi.Connection{
-			ID:      id,
-			Company: c.Company,
-			Exec:    sqlexec.Exec{DB: db, Role: c.SQLRole, Timeout: c.Timeout, MaxRows: c.MaxRows},
-			Scope:   c.Scope,
+			ID:        id,
+			Company:   c.Company,
+			Exec:      sqlexec.Exec{DB: db, Role: c.SQLRole, Timeout: c.Timeout, MaxRows: c.MaxRows},
+			Scope:     c.Scope,
+			Watermark: c.Watermark,
+			Refresh:   cmp.Or(c.Refresh, 5*time.Second),
 		}
 	}
 	return h, si, nil

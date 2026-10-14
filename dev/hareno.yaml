@@ -76,5 +76,7 @@ connections:
     sql_role: hareno_sql
     timeout: 30s
     max_rows: 10000
+    watermark: SELECT max(loaded_at) FROM mart.etl_watermark   # dashboards refresh when the mart loads (dev/mart/loader)
+    refresh: 5s
     scope:                         # Kiban data_scope objects mart.region.<value> (or mart.region.*)
       region: [North, South, West]
