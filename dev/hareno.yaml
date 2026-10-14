@@ -11,9 +11,63 @@ signin:                            # as the browser reaches them, through the de
   public_url: http://${HARENO_PUBLIC_HOST}:55450
   kiban_url: http://${HARENO_PUBLIC_HOST}:55451
   demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
-    - {user: alice, password: hareno-dev-password, note: "North manager: sees North rows only"}
-    - {user: bob, password: hareno-dev-password, note: "Finance group: sees all regions"}
-    - {user: carol, password: hareno-dev-password, note: "Another company (BETA): sees no data source"}
+    - user: alice
+      password: hareno-dev-password
+      company: ALPHA
+      via: "Position: North Regional Manager"
+      sql: true
+      rows: North
+      share_data: true
+      remarks:
+        - Limited rows (North only)
+        - Builds and publishes dashboards
+        - The only one who may share her data ("Sees my data")
+    - user: bob
+      password: hareno-dev-password
+      company: ALPHA
+      via: "Group: Finance"
+      sql: true
+      rows: All regions
+      share_data: false
+      remarks:
+        - All rows; compare with alice on the same dashboard
+        - Builds dashboards, but may not share his data
+    - user: erin
+      password: hareno-dev-password
+      company: ALPHA
+      via: None
+      sql: false
+      rows: None
+      share_data: false
+      remarks:
+        - Same company, no data access of her own
+        - Tests sharing; sees only what is shared with her
+        - Shared by alice with "Sees my data", she sees North
+    - user: carol
+      password: hareno-dev-password
+      company: BETA
+      via: None in ALPHA
+      sql: false
+      rows: None
+      share_data: false
+      remarks:
+        - Another company
+        - Tests the wall between companies
+        - Can never see ALPHA dashboards, even if someone tries to share
+  demo_data:                       # the sample data table on the sign-in page. Never in production.
+    connection: mart
+    sql: |
+      SELECT r.region_name AS region, o.order_id, to_char(o.ordered_at, 'YYYY-MM-DD') AS ordered, o.status,
+             c.customer_name AS customer, c.segment, p.product_name AS product, p.category,
+             li.quantity, li.unit_price, li.discount,
+             round(li.quantity * li.unit_price * (1 - coalesce(li.discount, 0)), 2) AS amount
+      FROM mart.fact_order o
+      JOIN mart.dim_customer c USING (customer_id)
+      JOIN mart.dim_region r USING (region_id)
+      JOIN mart.fact_order_line li USING (order_id)
+      JOIN mart.dim_product p USING (product_id)
+      ORDER BY 1, 2, li.line_no
+app_db: postgres://hareno:dev@localhost:55434/hareno
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

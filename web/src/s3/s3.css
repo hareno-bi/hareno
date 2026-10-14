@@ -103,6 +103,52 @@ button:disabled { opacity: 0.6; cursor: default; }
 .accounts th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; }
 .accounts th, .accounts td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
 .accounts a.button { border: 1px solid var(--grid); color: var(--text); white-space: nowrap; padding: 4px 10px; }
-.signin:has(.accounts) { max-width: 860px; }
-.test-accounts { max-width: none; font-size: 13px; }
 button.copy { font-size: 11px; padding: 1px 6px; }
+.report-bar { flex-wrap: wrap; }
+.report-bar input.title { font: 600 16px var(--font-display); color: var(--text); background: var(--surface); border: 1px solid var(--grid);
+  border-radius: var(--radius); padding: 5px 10px; min-width: 260px; flex: 0 1 420px; }
+.report-bar .new, .reports .new { margin-left: auto; }
+.reports table { width: 100%; border-collapse: collapse; }
+.reports th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; }
+.reports th, .reports td { padding: 8px; border-bottom: 1px solid var(--grid); }
+.reports .actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+.report .toolbar h2 { margin: 0 8px 0 0; }
+.report .toolbar { flex-wrap: wrap; margin-bottom: 4px; }
+dialog.share { width: min(560px, calc(100vw - 32px)); color: var(--text); padding: 18px; }
+dialog.share::backdrop { background: rgb(0 0 0 / 0.35); }
+dialog.share header { display: flex; align-items: center; }
+dialog.share .close { margin-left: auto; border: 0; font-size: 20px; line-height: 1; padding: 0 6px; }
+dialog.share h3 { margin-top: 14px; }
+.share-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.share-add input { min-width: 200px; }
+.share-add input { flex: 1; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--grid); border-radius: var(--radius); padding: 5px 8px; }
+.share-found, .share-list { list-style: none; padding: 0; margin: 8px 0; }
+.share-found li, .share-list li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+.share-found li > span:first-child, .share-list li > span:first-child { flex: 1; }
+.dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--gap); }
+.tile header { flex-wrap: nowrap; align-items: center; }
+.tile header h3 { margin: 0; }
+.tile-title { flex: 1; min-width: 0; font: 600 14px var(--font-display); color: var(--text); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius); padding: 3px 6px; }
+.tile-title:hover, .tile-title:focus { border-color: var(--grid); }
+.tile-tools { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.tile details { margin-bottom: 8px; }
+.tile summary { cursor: pointer; color: var(--muted); margin-bottom: 6px; }
+.tile .sql-input { min-height: 140px; }
+.tile .toolbar { flex-wrap: wrap; margin-top: 6px; }
+.tile .builder { margin-bottom: 0; }
+.tile .sql-error { margin-top: 0; }
+.tile .sql-table { height: 300px; }
+.add-tile { grid-column: 1 / -1; border-style: dashed; padding: 14px; color: var(--muted); }
+.note.warn { color: var(--down); margin: 8px 0 0; }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .tile header { flex-wrap: wrap; } }
+.signin:has(.accounts) { max-width: 1300px; }
+.scroll-x { overflow-x: auto; }
+.accounts .yes { color: var(--up); font-weight: 600; }
+.accounts h3 { margin-top: 24px; }
+.accounts table.sample .num { text-align: right; font-variant-numeric: tabular-nums; }
+.accounts table.sample tr.group td { border-top: 2px solid var(--muted); }
+.accounts table.sample td:first-child { font-weight: 600; }
+.accounts td code { white-space: nowrap; }
+.accounts ul.remarks { margin: 0; padding-left: 16px; text-align: left; }
+.accounts ul.remarks li { margin: 1px 0; }

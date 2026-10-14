@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hareno-bi/hareno/internal/authz"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
@@ -30,13 +31,48 @@ type Connection struct {
 	Company string              // Kiban company code that owns the connection, e.g. ALPHA
 	Exec    sqlexec.Exec        // runs as the connection's gate login
 	Scope   map[string][]string // scope attributes and their possible values, e.g. region: [North, South, West]
+	ID      int64               // the connection's row in the app database, which fixes its company and mode
 }
 
 // Handler serves POST /api/sql.
 type Handler struct {
 	Authz       *authz.Authz
 	Connections map[string]Connection
-	Log         *slog.Logger // audit log
+	Log         *slog.Logger  // audit log
+	DB          *pgxpool.Pool // application database: saved reports
+	Grants      Granter
+	People      People
+	Members     Members
+	Demo        Demo // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
+}
+
+// Demo is a fixed query whose result anyone may read, signed in or not: dev and demo stacks only.
+type Demo struct {
+	Connection string `yaml:"connection"`
+	SQL        string `yaml:"sql"`
+}
+
+// DemoData serves GET /api/demo-data: the Demo query run with every row (each scope attribute "*").
+func (h *Handler) DemoData(w http.ResponseWriter, r *http.Request) {
+	conn, ok := h.Connections[h.Demo.Connection]
+	if !ok {
+		fail(w, http.StatusNotFound, "no such connection")
+		return
+	}
+	all := sqlexec.Scope{}
+	for attr := range conn.Scope {
+		all[attr] = []string{"*"}
+	}
+	res, err := conn.Exec.Run(r.Context(), all, h.Demo.SQL)
+	if err != nil {
+		h.Log.Error("demo data failed", "error", err.Error())
+		fail(w, http.StatusBadGateway, "query failed")
+		return
+	}
+	if res.Rows == nil {
+		res.Rows = [][]any{}
+	}
+	reply(w, response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
 }
 
 type request struct {
@@ -53,7 +89,7 @@ type response struct {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	start := time.Now()
-	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer := bearerOf(r)
 	sub, err := h.Authz.User(ctx, bearer)
 	if err != nil {
 		fail(w, http.StatusUnauthorized, "sign in required")
@@ -112,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // List serves GET /api/connections: the connections the user may query with SQL, by name.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer := bearerOf(r)
 	sub, err := h.Authz.User(ctx, bearer)
 	if err != nil {
 		fail(w, http.StatusUnauthorized, "sign in required")
@@ -169,6 +205,11 @@ func (h *Handler) access(ctx context.Context, bearer, sub, company, name string,
 		}
 	}
 	return scope, ok[use], nil
+}
+
+func bearerOf(r *http.Request) string {
+	b, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return b
 }
 
 func fail(w http.ResponseWriter, status int, msg string) {

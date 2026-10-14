@@ -36,7 +36,7 @@ jobs:
           cache-dependency-path: compiler/package-lock.json
       - run: npm ci
         working-directory: compiler
-      - run: docker compose up -d --wait mart
+      - run: docker compose up -d --wait mart appdb
       - run: go test ./...
         env:
           HARENO_INTEGRATION: "1"
