@@ -35,8 +35,8 @@ Positions sit at the company root: Kiban 0.1.2 cannot place them on org units (A
 Browser login: `http://localhost:55440`.
 
 Hareno's own grants are re-applied on every `seed.sh` run (grants are idempotent):
-- The app's object types are `report`, `connection` (`sql_user` may use the SQL editor) and `data_scope` (`viewer` holds a row scope such as `mart.region.North`, or `mart.region.*` for all).
-- On ALPHA's `mart` connection, the North manager (alice) may use SQL with North only, and the Finance group (bob, dave) with all regions. BETA (carol) has no access.
+- The app's object types are `report`, `connection` (`sql_user` may use the SQL editor; `data_sharer` may share dashboards showing their own data) and `data_scope` (`viewer` holds a row scope such as `mart.region.North`, or `mart.region.*` for all).
+- On ALPHA's `mart` connection, the North manager (alice) may use SQL with North only and may share her data. The Finance group (bob, dave) may use SQL with all regions. erin is in ALPHA with no access of her own. BETA (carol) has no access.
 
 ## Hareno API
 
@@ -48,9 +48,10 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may query.
 
-Saved reports are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
+Saved reports are dashboards: a title and tiles, each its own SQL query shown as a chart or a table. They are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
 - **Changing a report's SQL** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` on its connection.
 - **Viewing the published revision** needs only `viewer` (or `editor`), and runs under the viewer's own row scope.
+- **Sharing a viewer the sharer's data** needs `data_sharer` on the connection. The viewer then sees the sharer's rows (`internal/sqlapi/shares.go`; ARCHITECTURE-PLAN.md §10.4 item 17).
 - **The creator** becomes the report's editor.
 
 The API keeps reports in the app database and applies its migrations at startup (`internal/appdb`). The first time it sees a configured connection, it records the connection's company and mode. If the configuration later gives a different company or mode, the API refuses to start, because both are fixed for a connection's life.

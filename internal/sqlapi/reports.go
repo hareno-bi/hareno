@@ -1,10 +1,10 @@
 package sqlapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -12,16 +12,18 @@ import (
 	"github.com/rosschiu/kiban/sdk"
 
 	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/sqlexec"
 )
 
-// Saved SQL reports (Phase 2 round 1, R1-4; ARCHITECTURE-PLAN §6.2, §9):
+// Saved SQL reports (Phase 2 round 1, R1-4; ARCHITECTURE-PLAN §6.2, §9). A report is a dashboard:
+// a title and tiles, each its own query and chart, all on one connection.
 //
 //	GET    /api/reports               reports the user may view or edit
 //	POST   /api/reports               {"connection", "draft"}: create; the creator becomes its editor
 //	GET    /api/reports/{id}          the draft (editors) and the published revision
 //	PUT    /api/reports/{id}          {"draft", "version"}: save the draft; 409 if someone saved since
 //	POST   /api/reports/{id}/publish  {"version"}: the draft becomes a new, immutable revision
-//	POST   /api/reports/{id}/run      run the published revision as the viewer, under their own row scope
+//	POST   /api/reports/{id}/run      run the published revision's tiles for the viewer (see scope)
 //	DELETE /api/reports/{id}
 //
 // Kiban holds who may do what: report#editor and report#viewer, and connection#sql_user.
@@ -36,14 +38,40 @@ type Granter interface {
 
 // Draft is a report's content.
 type Draft struct {
+	Title string `json:"title"`
+	Tiles []Tile `json:"tiles"`
+}
+
+// Tile is one query on a dashboard and how it is shown.
+type Tile struct {
 	Title string          `json:"title"`
 	SQL   string          `json:"sql"`
 	Chart json.RawMessage `json:"chart"` // the editor's chart settings, kept as given
+	Show  string          `json:"show"`  // "chart" or "table"
+	Wide  bool            `json:"wide"`  // the dashboard's full width, or half
 }
 
+const maxTiles = 24
+
 func (d Draft) valid() bool {
-	return d.Title != "" && len(d.Title) <= 200 && d.SQL != "" && len(d.Chart) <= 16<<10 &&
-		(len(d.Chart) == 0 || d.Chart[0] == '{')
+	if d.Title == "" || len(d.Title) > 200 || len(d.Tiles) == 0 || len(d.Tiles) > maxTiles {
+		return false
+	}
+	for _, t := range d.Tiles {
+		if t.SQL == "" || len(t.Title) > 200 || len(t.Chart) > 16<<10 || (t.Show != "chart" && t.Show != "table") ||
+			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") {
+			return false
+		}
+	}
+	return true
+}
+
+// name is how errors refer to tile i.
+func (d Draft) name(i int) string {
+	if d.Tiles[i].Title != "" {
+		return fmt.Sprintf("tile %d (%s)", i+1, d.Tiles[i].Title)
+	}
+	return fmt.Sprintf("tile %d", i+1)
 }
 
 type reportRow struct {
@@ -201,7 +229,7 @@ func (h *Handler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		Draft      Draft  `json:"draft"`
 	}
 	if !decode(w, r, &req) || !req.Draft.valid() {
-		fail(w, http.StatusBadRequest, "expected {\"connection\": ..., \"draft\": {\"title\", \"sql\", \"chart\"}}")
+		fail(w, http.StatusBadRequest, "expected {\"connection\": ..., \"draft\": {\"title\", \"tiles\": [{\"title\", \"sql\", \"chart\", \"show\", \"wide\"}]}}")
 		return
 	}
 	conn, ok := h.Connections[req.Connection]
@@ -250,13 +278,19 @@ func (h *Handler) CreateReport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
-	rep, rt, _, _, ok := h.load(w, r)
+	rep, rt, bearer, sub, ok := h.load(w, r)
 	if !ok {
 		return
 	}
 	out := map[string]any{"id": rep.ID, "connection": rep.Connection, "canEdit": rt.edit, "canEditSQL": rt.edit && rt.sql}
 	if rt.edit {
 		out["draft"], out["version"] = rep.Draft, rep.Version
+		canShare, err := h.refresh(r.Context(), bearer, sub, rep, rt)
+		if err != nil {
+			fail(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return
+		}
+		out["canShareData"] = canShare
 	}
 	if rep.Published != nil {
 		var body Draft
@@ -291,7 +325,7 @@ func (h *Handler) SaveReport(w http.ResponseWriter, r *http.Request) {
 		Version int   `json:"version"`
 	}
 	if !decode(w, r, &req) || !req.Draft.valid() {
-		fail(w, http.StatusBadRequest, "expected {\"draft\": {\"title\", \"sql\", \"chart\"}, \"version\": ...}")
+		fail(w, http.StatusBadRequest, "expected {\"draft\": {\"title\", \"tiles\": [{\"title\", \"sql\", \"chart\", \"show\", \"wide\"}]}, \"version\": ...}")
 		return
 	}
 	var version int
@@ -325,13 +359,20 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusConflict, "someone else saved this report since you opened it; reload to see their changes")
 		return
 	}
-	// Publish only SQL that runs: once, as the publisher, under their own scope.
-	if status, msg := h.run(ctx, bearer, sub, rep, rep.Draft.SQL, nil); status != http.StatusOK {
-		fail(w, status, "not published: "+msg)
+	// Publish only SQL that runs: each tile once, as the publisher, under their own scope.
+	scope, err := h.ownScope(ctx, bearer, sub, rep)
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
+	for i, t := range rep.Draft.Tiles {
+		if _, err := h.exec(ctx, sub, rep, scope, t.SQL); err != nil {
+			fail(w, http.StatusBadRequest, "not published: "+rep.Draft.name(i)+": "+err.Error())
+			return
+		}
+	}
 	var revision int
-	err := pgx.BeginFunc(ctx, h.DB, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, h.DB, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `INSERT INTO report_revision (report_id, revision, body, published_by)
 			SELECT id, coalesce((SELECT max(revision) FROM report_revision WHERE report_id = $1), 0) + 1, draft, $2
 			FROM report WHERE id = $1 AND version = $3 FOR UPDATE RETURNING revision`, rep.ID, sub, req.Version).Scan(&revision)
@@ -352,59 +393,92 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 	reply(w, map[string]any{"revision": revision})
 }
 
+// RunReport runs every tile of the published revision; a tile that fails carries its error.
 func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
-	rep, _, bearer, sub, ok := h.load(w, r)
+	rep, rt, bearer, sub, ok := h.load(w, r)
 	if !ok {
 		return
 	}
+	ctx := r.Context()
 	if rep.Published == nil {
 		fail(w, http.StatusNotFound, "this report has not been published")
 		return
 	}
 	var body Draft
-	if err := h.DB.QueryRow(r.Context(), `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
+	if err := h.DB.QueryRow(ctx, `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
 		fail(w, http.StatusInternalServerError, "could not read the report")
 		return
 	}
-	var buf bytes.Buffer
-	if status, msg := h.run(r.Context(), bearer, sub, rep, body.SQL, &buf); status != http.StatusOK {
-		fail(w, status, msg)
+	scope, data, err := h.scope(ctx, bearer, sub, rep, rt)
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(buf.Bytes())
+	type tile struct {
+		*response
+		Error string `json:"error,omitempty"`
+	}
+	// ponytail: tiles run one after another; run them concurrently when dashboards get slow.
+	tiles := make([]tile, len(body.Tiles))
+	for i, t := range body.Tiles {
+		res, err := h.exec(ctx, sub, rep, scope, t.SQL)
+		if err != nil {
+			tiles[i].Error = err.Error()
+		} else {
+			tiles[i].response = res
+		}
+	}
+	reply(w, map[string]any{"tiles": tiles, "data": data})
 }
 
-// run executes sql on the report's connection under the user's own row scope, without needing
-// sql_user: the report's editors chose the SQL. On success the result is written to out (if set).
-func (h *Handler) run(ctx context.Context, bearer, sub string, rep reportRow, sql string, out *bytes.Buffer) (int, string) {
-	start := time.Now()
+// scope is the row scope the report runs under for the user, and whose it is: their own, or for
+// a viewer it was shared with showing the sharer's data, the sharer's (see shares.go).
+func (h *Handler) scope(ctx context.Context, bearer, sub string, rep reportRow, rt rights) (sqlexec.Scope, string, error) {
+	if rt.edit {
+		_, err := h.refresh(ctx, bearer, sub, rep, rt)
+		if err != nil {
+			return nil, "", err
+		}
+	} else if scope, ok, err := h.sharedScope(ctx, sub, rep, rt); err != nil || ok {
+		return scope, "sharer", err
+	}
+	scope, err := h.ownScope(ctx, bearer, sub, rep)
+	return scope, "viewer", err
+}
+
+// ownScope is the user's own row scope on the report's connection.
+func (h *Handler) ownScope(ctx context.Context, bearer, sub string, rep reportRow) (sqlexec.Scope, error) {
 	conn, ok := h.Connections[rep.Connection]
 	if !ok {
-		return http.StatusNotFound, "the report's connection has been removed"
+		return nil, errors.New("the report's connection has been removed")
 	}
 	company, err := h.Authz.Company(ctx, bearer, sub, conn.Company)
 	if err != nil {
-		return http.StatusServiceUnavailable, "authorization unavailable"
+		return nil, err
 	}
 	scope, _, err := h.access(ctx, bearer, sub, company, rep.Connection, conn)
-	if err != nil {
-		return http.StatusServiceUnavailable, "authorization unavailable"
+	return scope, err
+}
+
+// exec runs sql on the report's connection under scope, without needing sql_user: the report's
+// editors chose the SQL.
+func (h *Handler) exec(ctx context.Context, sub string, rep reportRow, scope sqlexec.Scope, sql string) (*response, error) {
+	start := time.Now()
+	conn, ok := h.Connections[rep.Connection]
+	if !ok {
+		return nil, errors.New("the report's connection has been removed")
 	}
 	audit := h.Log.With("user", sub, "report", rep.ID, "connection", rep.Connection, "scope", scope)
 	res, err := conn.Exec.Run(ctx, scope, sql)
 	if err != nil {
 		audit.Info("report run failed", "error", err.Error())
-		return http.StatusBadRequest, err.Error()
+		return nil, err
 	}
 	audit.Info("report ran", "rows", len(res.Rows), "ms", time.Since(start).Milliseconds())
-	if out != nil {
-		if res.Rows == nil {
-			res.Rows = [][]any{}
-		}
-		json.NewEncoder(out).Encode(response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
+	if res.Rows == nil {
+		res.Rows = [][]any{}
 	}
-	return http.StatusOK, ""
+	return &response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated}, nil
 }
 
 func (h *Handler) DeleteReport(w http.ResponseWriter, r *http.Request) {

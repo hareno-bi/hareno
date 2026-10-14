@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { Chart } from '../s3/Chart'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { chartOption, fit, isNum, kinds, type Kind, type Result, type Spec } from './chart'
+import { blank, fit, isNum, kinds, type Dash, type Kind, type Result, type Show, type Spec, type TileDef } from './chart'
 import Share from './Share'
-import Table from './Table'
+import TileOutput from './Tile'
 
-// The SQL editor (Phase 2 round 1, R1-3/R1-4): write a query against a connection, see the rows,
-// build a chart from them, and save and publish it as a report. Rows are filtered by the database
-// for the signed-in user (R1-1/R1-2).
+// The dashboard editor (Phase 2 round 1, R1-3/R1-4): tiles, each a SQL query against the
+// dashboard's connection shown as a chart or a table, saved and published as a report. Rows are
+// filtered by the database for the signed-in user (R1-1/R1-2).
 const sample = `-- Revenue by region and month. Rows outside your data scope are filtered by the database.
 SELECT r.region_name AS region,
        to_char(o.ordered_at, 'YYYY-MM') AS month,
@@ -20,15 +19,27 @@ WHERE o.status = 'complete'
 GROUP BY 1, 2
 ORDER BY 2, 1`
 
-function remembered() {
+const newTile = (sql = ''): TileDef => ({ title: '', sql, chart: blank, show: 'chart', wide: false })
+const firstTile = (): TileDef => {
+  let sql = sample
   try {
-    return localStorage.getItem('hareno-sql') ?? sample
+    sql = localStorage.getItem('hareno-sql') ?? sample
   } catch {
-    return sample
+    // not remembered; fine
   }
+  return { ...newTile(sql), title: 'Revenue by region', wide: true }
 }
 
-type Draft = { title: string; sql: string; chart: Spec }
+// A tile being edited: what is saved, and its last run.
+type Edit = TileDef & { key: number; result?: Result; error?: string; running?: boolean; ms?: number; open?: boolean }
+let keys = 0
+const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open })
+const saveable = (t: TileDef): TileDef => ({
+  title: t.title, sql: t.sql, show: t.show, wide: t.wide,
+  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split },
+})
+// same compares drafts whatever their key order (the database keeps its own)
+const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable) })
 const json = { 'Content-Type': 'application/json' }
 
 export default function Editor({ reportId, style, vars, themeKey, fontsReady, onSignedOut }: {
@@ -36,21 +47,17 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
 }) {
   const [connections, setConnections] = useState<string[] | null>(null)
   const [connection, setConnection] = useState('')
-  const [sql, setSql] = useState(() => (reportId ? '' : remembered()))
   // the saved report this edits: id, the draft version the server has, its published revision,
   // and the draft as last saved (to show unsaved changes)
   const [id, setId] = useState(reportId)
   const [title, setTitle] = useState('')
+  const [tiles, setTiles] = useState<Edit[]>(() => (reportId ? [] : [editing(firstTile(), true)]))
   const [version, setVersion] = useState(0)
   const [published, setPublished] = useState<number | null>(null)
   const [saved, setSaved] = useState('')
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(!reportId)
-  const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [running, setRunning] = useState(false)
-  const [ms, setMs] = useState(0)
-  const [spec, setSpec] = useState<Spec>({ kind: 'bar', x: '', ys: [], split: '' })
 
   useEffect(() => {
     fetch('/api/connections').then(async (r) => {
@@ -58,7 +65,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       const body = await r.json()
       if (!r.ok) return setError(body.error)
       setConnections(body.connections)
-      setConnection(body.connections[0] ?? '')
+      setConnection((c) => c || (body.connections[0] ?? ''))
     }, () => setError('Hareno is not reachable.'))
   }, [onSignedOut])
 
@@ -72,25 +79,66 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
         location.hash = `#/report/${reportId}` // a viewer: show the published report
         return
       }
-      const d: Draft = body.draft
+      const d: Dash = body.draft
       setTitle(d.title)
-      setSql(d.sql)
-      if (d.chart?.kind) setSpec(d.chart)
+      setTiles(d.tiles.map((t) => editing(t)))
       setConnection(body.connection)
       setVersion(body.version)
       setPublished(body.published?.revision ?? null)
-      setSaved(JSON.stringify(d))
+      setSaved(same(d))
       setLoaded(true)
     }, () => setError('Hareno is not reachable.'))
   }, [reportId, onSignedOut])
 
-  const draft: Draft = { title: title.trim(), sql, chart: spec }
-  const dirty = JSON.stringify(draft) !== saved
+  const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable) }
+  const dirty = same(draft) !== saved
+
+  const update = (key: number, p: Partial<Edit>) => setTiles((ts) => ts.map((t) => (t.key === key ? { ...t, ...p } : t)))
+  const move = (key: number, by: number) => setTiles((ts) => {
+    const i = ts.findIndex((t) => t.key === key), j = i + by
+    if (j < 0 || j >= ts.length) return ts
+    const out = [...ts];
+    [out[i], out[j]] = [out[j], out[i]]
+    return out
+  })
+
+  async function run(t: Edit) {
+    if (!connection || !t.sql.trim()) return
+    if (!id && t.key === tiles[0]?.key) {
+      try {
+        localStorage.setItem('hareno-sql', t.sql)
+      } catch {
+        // not remembered; fine
+      }
+    }
+    update(t.key, { running: true, error: undefined })
+    const start = performance.now()
+    try {
+      const r = await fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify({ connection, sql: t.sql }) })
+      if (r.status === 401) return onSignedOut()
+      const body = await r.json()
+      if (!r.ok) return update(t.key, { running: false, error: body.error ?? `HTTP ${r.status}` })
+      setTiles((ts) => ts.map((x) => (x.key === t.key
+        ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body) }
+        : x)))
+    } catch {
+      update(t.key, { running: false, error: 'Hareno is not reachable.' })
+    }
+  }
+
+  // every tile runs once the dashboard and its connection are known
+  const ran = useRef(false)
+  useEffect(() => {
+    if (ran.current || !loaded || !connection) return
+    ran.current = true
+    tiles.forEach(run)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per load
+  }, [loaded, connection])
 
   // save stores the draft (creating the report the first time) and returns where it is, or null.
   async function save(): Promise<{ id: string; version: number } | null> {
     if (!draft.title) {
-      setError('Give the report a title before saving.')
+      setError('Give the dashboard a title before saving.')
       return null
     }
     const r = await fetch(id ? `/api/reports/${id}` : '/api/reports', {
@@ -111,7 +159,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       history.replaceState(null, '', `#/sql/${body.id}`)
     }
     setVersion(body.version)
-    setSaved(JSON.stringify(draft))
+    setSaved(same(draft))
     return { id: id ?? body.id, version: body.version }
   }
 
@@ -136,57 +184,13 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
     setPublished(body.revision)
   })
 
-  async function run() {
-    if (!connection || running) return
-    if (!id) {
-      try {
-        localStorage.setItem('hareno-sql', sql)
-      } catch {
-        // not remembered; fine
-      }
-    }
-    setRunning(true)
-    setError(null)
-    const t = performance.now()
-    try {
-      const r = await fetch('/api/sql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connection, sql }) })
-      if (r.status === 401) return onSignedOut()
-      const body = await r.json()
-      if (!r.ok) {
-        setError(body.error ?? `HTTP ${r.status}`)
-        return
-      }
-      setMs(performance.now() - t)
-      setResult(body)
-      setSpec((s) => fit(s, body))
-    } catch {
-      setError('Hareno is not reachable.')
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault()
-      run()
-    }
-  }
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
-  const option = useMemo(() => (result && spec.x && spec.ys.length ? chartOption(result, spec, style, vars) : null), [result, spec, themeKey])
-
-  // a saved report runs once it has loaded
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per load
-  useEffect(() => { if (reportId && loaded && connection) run() }, [loaded, connection])
-
   if (connections && connections.length === 0) {
     return <p className="note">You have no connections you may query with SQL. Ask your administrator for access.</p>
   }
   return (
     <div className="sql">
       <div className="toolbar report-bar">
-        <input className="title" aria-label="Report title" placeholder="Untitled report" value={title} maxLength={200}
+        <input className="title" aria-label="Dashboard title" placeholder="Untitled dashboard" value={title} maxLength={200}
           onChange={(e) => setTitle(e.target.value)} />
         <button onClick={() => act(save)} disabled={busy || !loaded || (!!id && !dirty)}>Save</button>
         <button className="primary" onClick={publish} disabled={busy || !loaded}>Publish</button>
@@ -195,7 +199,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           {published !== null && <> · <a href={`#/report/${id}`}>published revision {published}</a></>}
         </span>
         {id && <Share id={id} />}
-        <a className="new" href="#/sql">New query</a>
+        <a className="new" href="#/sql">New dashboard</a>
       </div>
       <div className="toolbar">
         <label>
@@ -204,37 +208,75 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
             {(connections ?? []).map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
-        <button className="primary" onClick={run} disabled={!connection || running}>{running ? 'Running…' : 'Run'}</button>
-        <span className="muted">Ctrl+Enter runs</span>
-        <span className="muted status" aria-live="polite">
-          {result && !running && `${result.rows.length.toLocaleString()} rows${result.truncated ? ' (row limit reached, more not shown)' : ''} · ${Math.round(ms)} ms`}
-        </span>
+        <button onClick={() => tiles.forEach(run)} disabled={!connection}>Run all</button>
+        <span className="muted">Ctrl+Enter in a query runs that tile</span>
       </div>
-      <textarea className="sql-input" aria-label="SQL query" spellCheck={false} value={sql}
-        onChange={(e) => setSql(e.target.value)} onKeyDown={onKey} />
       {error && <div className="card sql-error" role="alert">{error}</div>}
-      {result && (
-        <div className="sql-out">
-          <section className="card">
-            <header><h3>Chart</h3></header>
-            <Builder result={result} spec={spec} setSpec={setSpec} />
-            {option && fontsReady
-              ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[spec.kind]} chart of ${spec.ys.join(', ')} by ${spec.x}`} />
-              : <div className="state">Pick a column for X and at least one numeric column for Y.</div>}
-          </section>
-          <section className="card">
-            <header><h3>Rows</h3></header>
-            <Table result={result} />
-          </section>
-        </div>
-      )}
+      <div className="grid dash-grid">
+        {tiles.map((t, i) => (
+          <TileEditor key={t.key} tile={t} first={i === 0} last={i === tiles.length - 1} single={tiles.length === 1}
+            update={(p) => update(t.key, p)} move={(by) => move(t.key, by)} run={() => run(t)}
+            remove={() => setTiles((ts) => ts.filter((x) => x.key !== t.key))}
+            style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
+        ))}
+        <button className="add-tile" onClick={() => setTiles((ts) => [...ts, editing(newTile(), true)])} disabled={tiles.length >= 24}>+ Add tile</button>
+      </div>
     </div>
+  )
+}
+
+function TileEditor({ tile: t, first, last, single, update, move, run, remove, style, vars, themeKey, fontsReady }: {
+  tile: Edit; first: boolean; last: boolean; single: boolean
+  update: (p: Partial<Edit>) => void; move: (by: number) => void; run: () => void; remove: () => void
+  style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
+}) {
+  const name = t.title || 'Untitled tile'
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      run()
+    }
+  }
+  return (
+    <section className={'card tile' + (t.wide ? ' wide' : '')} aria-label={name}>
+      <header>
+        <input className="tile-title" aria-label="Tile title" placeholder="Untitled tile" value={t.title} maxLength={200}
+          onChange={(e) => update({ title: e.target.value })} />
+        <span className="tile-tools">
+          <select aria-label={`Show ${name} as`} value={t.show} onChange={(e) => update({ show: e.target.value as Show })}>
+            <option value="chart">Chart</option>
+            <option value="table">Table</option>
+          </select>
+          <select aria-label={`Width of ${name}`} value={t.wide ? 'wide' : 'half'} onChange={(e) => update({ wide: e.target.value === 'wide' })}>
+            <option value="half">Half width</option>
+            <option value="wide">Full width</option>
+          </select>
+          <button onClick={() => move(-1)} disabled={first} aria-label={`Move ${name} earlier`} title="Move earlier">↑</button>
+          <button onClick={() => move(1)} disabled={last} aria-label={`Move ${name} later`} title="Move later">↓</button>
+          <button onClick={remove} disabled={single} aria-label={`Remove ${name}`} title="Remove tile">×</button>
+        </span>
+      </header>
+      <details open={t.open} onToggle={(e) => update({ open: (e.target as HTMLDetailsElement).open })}>
+        <summary>Query{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
+        <textarea className="sql-input" aria-label={`SQL for ${name}`} spellCheck={false} value={t.sql} placeholder="SELECT …"
+          onChange={(e) => update({ sql: e.target.value })} onKeyDown={onKey} />
+        <div className="toolbar">
+          <button className="primary" onClick={run} disabled={t.running || !t.sql.trim()}>{t.running ? 'Running…' : 'Run'}</button>
+          {t.result && t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
+        </div>
+      </details>
+      {t.error && <div className="sql-error" role="alert">{t.error}</div>}
+      {t.result
+        ? <TileOutput result={t.result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
+        : !t.error && <div className={'state' + (t.running ? ' loading' : '')}>{t.running ? 'Running…' : 'Write a query and run it.'}</div>}
+    </section>
   )
 }
 
 function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpec: (s: Spec) => void }) {
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
+  const group = useId()
   const single = spec.kind === 'pie' || spec.split !== '' // one value column: slices, or one series per split value
   return (
     <div className="builder">
@@ -252,7 +294,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
           <label key={c}>
-            <input type={single ? 'radio' : 'checkbox'} name="y" checked={spec.ys.includes(c)}
+            <input type={single ? 'radio' : 'checkbox'} name={group} checked={spec.ys.includes(c)}
               onChange={(e) => set({ ys: single ? [c] : e.target.checked ? [...spec.ys, c] : spec.ys.filter((y) => y !== c) })} />
             {' '}{c}
           </label>
@@ -267,4 +309,3 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
     </div>
   )
 }
-

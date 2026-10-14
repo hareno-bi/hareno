@@ -126,3 +126,20 @@ dialog.share h3 { margin-top: 14px; }
 .share-found, .share-list { list-style: none; padding: 0; margin: 8px 0; }
 .share-found li, .share-list li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
 .share-found li > span:first-child, .share-list li > span:first-child { flex: 1; }
+.dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--gap); }
+.tile header { flex-wrap: nowrap; align-items: center; }
+.tile header h3 { margin: 0; }
+.tile-title { flex: 1; min-width: 0; font: 600 14px var(--font-display); color: var(--text); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius); padding: 3px 6px; }
+.tile-title:hover, .tile-title:focus { border-color: var(--grid); }
+.tile-tools { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.tile details { margin-bottom: 8px; }
+.tile summary { cursor: pointer; color: var(--muted); margin-bottom: 6px; }
+.tile .sql-input { min-height: 140px; }
+.tile .toolbar { flex-wrap: wrap; margin-top: 6px; }
+.tile .builder { margin-bottom: 0; }
+.tile .sql-error { margin-top: 0; }
+.tile .sql-table { height: 300px; }
+.add-tile { grid-column: 1 / -1; border-style: dashed; padding: 14px; color: var(--muted); }
+.note.warn { color: var(--down); margin: 8px 0 0; }
+@media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .tile header { flex-wrap: wrap; } }

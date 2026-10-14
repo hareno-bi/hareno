@@ -4,7 +4,8 @@
 #
 # Seeded (dev-only password for every user: hareno-dev-password):
 #   ALPHA "Alpha Trading Ltd": business units NORTH, SOUTH, WEST (match the dev mart regions)
-#     members alice, bob, dave; position NORTH_MGR held by alice; group FINANCE {bob, dave}
+#     members alice, bob, dave, erin; position NORTH_MGR held by alice; group FINANCE {bob, dave}
+#     (erin has no data access of her own: she sees only what is shared with her)
 #   BETA "Beta Logistics Ltd": business unit HQ
 #     members carol, dave; position FIN_LEAD held by carol
 #   Kiban 0.1.2 places every position at the company root: the admin create route rejects
@@ -84,18 +85,19 @@ my_companies() {
 
 SA_PW=$(cat secrets-in/superadmin-password)
 ensure_user "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW"
-for u in alice bob carol dave; do ensure_user "$u" "$DEV_PW"; done
+for u in alice bob carol dave erin; do ensure_user "$u" "$DEV_PW"; done
 
 # register_app TOKEN: register (or re-register) the hareno app and its object types.
-#   report: viewer/editor. connection: sql_user may use the SQL editor on it.
+#   report: viewer/editor. connection: sql_user may use the SQL editor on it; data_sharer may
+#     share reports on it showing their own data to people who could not see it.
 #   data_scope: viewer holds that row scope, e.g. mart.region.North or mart.region.* (all).
 register_app() {
     api "$1" "$GW/api/platform/admin/apps" -d '{
-        "key": "hareno", "displayName": "Hareno", "version": "0.0.2", "serviceClientId": "hareno-backend",
+        "key": "hareno", "displayName": "Hareno", "version": "0.0.3", "serviceClientId": "hareno-backend",
         "features": ["hareno.use"],
         "authzFragment": {
             "report": {"company_module": {"this": true}, "viewer": {"this": true}, "editor": {"this": true}},
-            "connection": {"company_module": {"this": true}, "sql_user": {"this": true}},
+            "connection": {"company_module": {"this": true}, "sql_user": {"this": true}, "data_sharer": {"this": true}},
             "data_scope": {"company_module": {"this": true}, "viewer": {"this": true}}
         }
     }' >/dev/null
@@ -146,6 +148,14 @@ else
     for m in "$m_bob" "$m_dave_a"; do api "$sa" "$GW/api/org/admin/groups/$finance/members" -d "{\"memberId\": \"$m\"}" >/dev/null; done
 fi
 
+# erin (added after the first seed): an ALPHA member with no grants.
+if [ -z "$(my_companies erin)" ]; then
+    sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
+    alpha=$(api "$(login alice "$DEV_PW")" "$GW/api/org/me/companies" | jq -r '.data[] | select(.code == "ALPHA") | .id')
+    id=$(api_id "$sa" "$GW/api/org/admin/members" -d "$(jq -n --arg c "$alpha" '{companyId: $c, code: "erin", displayName: "erin", email: "erin@example.invalid"}')")
+    api "$sa" "$GW/api/org/admin/members/$id/link-user" -d "$(jq -n --arg s "$(kc_user_id erin)" '{kcSub: $s}')" >/dev/null
+fi
+
 # Service client secret for Hareno's backend.
 client=$(kc "$KCA/clients?clientId=hareno-backend" | jq -r '.[0].id')
 kc "$KCA/clients/$client/client-secret" | jq -r .value > hareno-backend-secret
@@ -153,7 +163,7 @@ chmod 600 hareno-backend-secret
 
 # Hareno's dev grants, every run (grants are idempotent): the app's object types are current,
 # and ALPHA's mart connection is usable with SQL by the North manager (North only) and the
-# Finance group (all regions). BETA has no access to the mart.
+# Finance group (all regions). The North manager may share her data. BETA has no access to the mart.
 sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
 register_app "$sa"
 svc=$(curl -sf "$GW/auth/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" -d grant_type=client_credentials \
@@ -167,6 +177,7 @@ api "$svc" "$GW/api/auth/grants" -d "$(jq -n --arg c "$alpha" --arg p "$north_mg
     def to_fin($t; $id; $r): {objectType: $t, objectId: $id, relation: $r, subjectType: "group", subjectId: $f, subjectRelation: "member"};
     {op: "grant", companyId: $c, tuples: [
         anchor("connection"; "mart"), to_pos("connection"; "mart"; "sql_user"), to_fin("connection"; "mart"; "sql_user"),
+        to_pos("connection"; "mart"; "data_sharer"),
         anchor("data_scope"; "mart.region.North"), to_pos("data_scope"; "mart.region.North"; "viewer"),
         anchor("data_scope"; "mart.region.*"), to_fin("data_scope"; "mart.region.*"; "viewer")]}')" >/dev/null
 
@@ -177,6 +188,7 @@ check "alice companies" "$(my_companies alice)" ALPHA
 check "bob companies"   "$(my_companies bob)"   ALPHA
 check "carol companies" "$(my_companies carol)" BETA
 check "dave companies"  "$(my_companies dave)"  ALPHA,BETA
+check "erin companies"  "$(my_companies erin)"  ALPHA
 sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
 company_id() { r=$(api "$(login "$1" "$DEV_PW")" "$GW/api/org/me/companies"); echo "$r" | jq -r --arg c "$2" '.data[] | select(.code == $c) | .id'; }
 holders() { r=$(api "$sa" "$GW/api/org/admin/companies/$1/positions"); echo "$r" | jq -r '[.data.items[] | "\(.code)=\(.holderDisplayName)"] | sort | join(",")'; }
@@ -203,4 +215,7 @@ check "alice scope North"     "$(allowed alice data_scope mart.region.North view
 check "alice scope all"       "$(allowed alice data_scope 'mart.region.*' viewer)" false
 check "bob scope all"         "$(allowed bob data_scope 'mart.region.*' viewer)" true
 check "carol sql on mart"     "$(allowed carol connection mart sql_user)" false
+check "alice shares her data" "$(allowed alice connection mart data_sharer)" true
+check "bob shares his data"   "$(allowed bob connection mart data_sharer)" false
+check "erin sql on mart"      "$(allowed erin connection mart sql_user)" false
 exit $fail

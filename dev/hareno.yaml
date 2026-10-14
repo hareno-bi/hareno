@@ -11,8 +11,9 @@ signin:                            # as the browser reaches them, through the de
   public_url: http://${HARENO_PUBLIC_HOST}:55450
   kiban_url: http://${HARENO_PUBLIC_HOST}:55451
   demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
-    - {user: alice, password: hareno-dev-password, note: "North manager: sees North rows only"}
+    - {user: alice, password: hareno-dev-password, note: "North manager: sees North rows only; may share her data"}
     - {user: bob, password: hareno-dev-password, note: "Finance group: sees all regions"}
+    - {user: erin, password: hareno-dev-password, note: "Same company, no data access: sees only what is shared with her"}
     - {user: carol, password: hareno-dev-password, note: "Another company (BETA): sees no data source"}
 app_db: postgres://hareno:dev@localhost:55434/hareno
 connections:

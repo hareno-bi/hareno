@@ -42,6 +42,7 @@ type Handler struct {
 	DB          *pgxpool.Pool // application database: saved reports
 	Grants      Granter
 	People      People
+	Members     Members
 }
 
 type request struct {

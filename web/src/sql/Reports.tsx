@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Chart } from '../s3/Chart'
+import { useEffect, useState } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { chartOption, fit, kinds, type Result, type Spec } from './chart'
+import type { Dash, Result } from './chart'
 import Share from './Share'
-import Table from './Table'
+import TileOutput from './Tile'
 
 // Saved reports (Phase 2 round 1, R1-4): the list, and a published report as its viewers see it.
 // Every write sends Content-Type: application/json: the API refuses cookie-authenticated writes
@@ -34,9 +33,9 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
   if (!items) return <div className="state loading">Loading…</div>
   return (
     <section className="card reports">
-      <header><h3>Reports</h3><a className="button primary new" href="#/sql">New query</a></header>
+      <header><h3>Dashboards</h3><a className="button primary new" href="#/sql">New dashboard</a></header>
       {items.length === 0
-        ? <p className="muted">No reports yet. Write a query in the SQL editor and save it.</p>
+        ? <p className="muted">No dashboards yet. Build one in the dashboard editor and save it.</p>
         : (
           <table>
             <thead><tr><th>Title</th><th>Connection</th><th>Status</th><th>Updated</th><th /></tr></thead>
@@ -60,21 +59,22 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
   )
 }
 
-type Published = { revision: number; publishedAt: string; body: { title: string; sql: string; chart: Spec } }
+type Published = { revision: number; publishedAt: string; body: Dash }
+type Run = { tiles: (Result & { error?: undefined } | { error: string })[]; data: 'viewer' | 'sharer' }
 
 export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut }: {
   id: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
 }) {
   const [report, setReport] = useState<{ published?: Published; canEdit: boolean } | null>(null)
-  const [result, setResult] = useState<Result | null>(null)
+  const [run, setRun] = useState<Run | null>(null)
   const [ranAt, setRanAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const run = () => fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: '{}' }).then(async (r) => {
+  const refresh = () => fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: '{}' }).then(async (r) => {
     if (r.status === 401) return onSignedOut()
     const body = await r.json()
     if (!r.ok) return setError(body.error)
-    setResult(body)
+    setRun(body)
     setRanAt(new Date())
   }, () => setError('Hareno is not reachable.'))
 
@@ -84,19 +84,15 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
       const body = await r.json()
       if (!r.ok) return setError(body.error)
       setReport(body)
-      if (body.published) run()
+      if (body.published) refresh()
     }, () => setError('Hareno is not reachable.'))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per report
   }, [id])
 
   const pub = report?.published
-  const spec = pub && result ? fit(pub.body.chart?.kind ? pub.body.chart : { kind: 'bar', x: '', ys: [], split: '' }, result) : null
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
-  const option = useMemo(() => (result && spec?.x && spec.ys.length ? chartOption(result, spec, style, vars) : null), [result, pub, themeKey])
-
   if (error) return <div className="card sql-error" role="alert">{error}</div>
   if (!report) return <div className="state loading">Loading…</div>
-  if (!pub) return <p className="note">This report has not been published yet. {report.canEdit && <a href={`#/sql/${id}`}>Open the draft</a>}</p>
+  if (!pub) return <p className="note">This dashboard has not been published yet. {report.canEdit && <a href={`#/sql/${id}`}>Open the draft</a>}</p>
   return (
     <div className="report">
       <div className="toolbar">
@@ -105,22 +101,29 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleString()}
           {ranAt && ` · data as of ${ranAt.toLocaleTimeString()}`}
         </span>
-        <button onClick={run}>Refresh</button>
+        <button onClick={refresh}>Refresh</button>
         {report.canEdit && <Share id={id} />}
         {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
       </div>
-      {result && (
-        <div className="sql-out">
-          <section className="card">
-            {option && fontsReady && spec
-              ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[spec.kind]} chart: ${pub.body.title}`} />
-              : <div className="state">No chart for this result.</div>}
-          </section>
-          <section className="card">
-            <Table result={result} />
-          </section>
-        </div>
-      )}
+      <p className="note" role="status">
+        {run?.data === 'sharer'
+          ? 'You are seeing the data of the person who shared this dashboard with you.'
+          : 'You are seeing your own data: rows outside your access are left out.'}
+      </p>
+      <div className="grid dash-grid">
+        {pub.body.tiles.map((t, i) => {
+          const res = run?.tiles[i]
+          const name = t.title || `Tile ${i + 1}`
+          return (
+            <section key={i} className={'card tile' + (t.wide ? ' wide' : '')} aria-label={name}>
+              {t.title && <header><h3>{t.title}</h3></header>}
+              {!res ? <div className="state loading">Loading…</div>
+                : res.error !== undefined ? <div className="sql-error" role="alert">{res.error}</div>
+                : <TileOutput result={res} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />}
+            </section>
+          )
+        })}
+      </div>
     </div>
   )
 }

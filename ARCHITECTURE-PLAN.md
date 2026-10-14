@@ -186,6 +186,8 @@ Published reports reference known dataset revisions. Dataset changes produce an 
 
 ### 6.3 Designer
 
+Round 1 (R1-4c) ships a first step: a report is a dashboard of tiles, each its own SQL query shown as a chart or table, half or full width, arranged by moving tiles up and down. The full designer below replaces it.
+
 Propose a grid canvas with resizing, alignment, pages, property panels, field selection, chart configuration, filters, preview and publish. Smaller-screen viewing uses stacking/reflow. Start with edit-conflict detection rather than real-time collaborative editing.
 
 Authors should be able to configure shared filters, chart selections, cross-filtering, drill-down and drill-through. These behaviors belong to the application, not the renderer alone. Cross-highlighting depth and interaction configuration need explicit acceptance criteria.
@@ -355,6 +357,11 @@ The following reflects the team's supplied response, not independently verified 
    - **People:** share with `member:<memberId>#mapped_user`, using member ids from the member directory, never a login subject. The tuple follows the member's linked login and ends with the membership. Kiban confirmed the pattern; documenting it is a docs fix on their side.
    - **Positions and groups:** members cannot list them; only company administrators can. Kiban plans member-level list routes for 0.2.
    - **Until then:** Hareno shares with people only (R1-4b). Making Hareno's service account a company administrator was rejected as far broader than needed.
+17. **Sharing the sharer's data (R1-4c, 2026-10-14):**
+   - **Default:** a share shows each viewer their own rows, so it gives no data they could not already query.
+   - **"Show my data":** the sharer may choose instead that viewers see the sharer's rows. Because this hands out data, only holders of `connection#data_sharer` may choose it, set per data source in Kiban by the company's administrators (dev: the North manager position). It is for viewers only; editors always work with their own rows.
+   - **Several data sources:** the strictest rule applies. A report or query spanning several sources needs `data_sharer` on every one, or each viewer sees their own rows.
+   - **Kiban gap:** Kiban answers only for the caller's own token (or the service account), so Hareno cannot ask at view time what the sharer may see. Hareno keeps the sharer's row scope with the share and refreshes it whenever the sharer opens the report. If they lost `data_sharer`, the share falls back to each viewer's own rows. The share stops showing data as soon as the sharer leaves the company (checked through the member directory on every view). Remaining gap: a sharer whose row scope shrinks keeps sharing the old scope until they next open the report. To ask Kiban: a service-side check on behalf of a named subject.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 

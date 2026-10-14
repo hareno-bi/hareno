@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -56,6 +57,16 @@ func (g grants) Revoke(_ context.Context, company string, ts ...sdk.Tuple) error
 	return nil
 }
 
+// MemberBySubject answers from the same member map, in any company.
+func (g grants) MemberBySubject(_ context.Context, _, sub string) (sdk.MemberFact, error) {
+	for m, s := range g.members {
+		if s == sub {
+			return sdk.MemberFact{IsMember: true, IsActive: true, MemberID: &m}, nil
+		}
+	}
+	return sdk.MemberFact{}, nil
+}
+
 // directory is a fake member directory: company id -> entries, matched by name substring.
 type directory map[string][]sdk.DirectoryEntry
 
@@ -85,14 +96,16 @@ func TestReports(t *testing.T) {
 
 	alpha := []sdk.Company{{ID: "c-alpha", Code: "ALPHA", IsActive: true}}
 	f := &authz.Fake{Companies: map[string][]sdk.Company{
-		"alice": alpha, "bob": alpha, "mallory": alpha, "carol": {{ID: "c-beta", Code: "BETA", IsActive: true}},
+		"alice": alpha, "bob": alpha, "mallory": alpha, "erin": alpha, "carol": {{ID: "c-beta", Code: "BETA", IsActive: true}},
 	}}
 	f.Grant("c-alpha", "connection", "mart", "sql_user", "alice")
 	f.Grant("c-alpha", "connection", "mart", "sql_user", "bob")
 	f.Grant("c-alpha", "data_scope", "mart.region.North", "viewer", "alice")
 	f.Grant("c-alpha", "data_scope", "mart.region.*", "viewer", "bob")
 	f.Grant("c-alpha", "data_scope", "mart.region.North", "viewer", "mallory")
+	f.Grant("c-alpha", "connection", "mart", "data_sharer", "alice") // erin has no access of her own
 
+	kiban := grants{f, map[string]string{"m-alice": "alice", "m-bob": "bob", "m-mallory": "mallory", "m-erin": "erin", "m-carol": "carol"}}
 	now := time.Now()
 	tick := func() { now = now.Add(time.Minute) } // past the decision cache after a grant changes
 	h := &Handler{
@@ -103,14 +116,16 @@ func TestReports(t *testing.T) {
 			Exec:  sqlexec.Exec{DB: mart, Role: "hareno_sql", Timeout: 5 * time.Second, MaxRows: 1000},
 			Scope: map[string][]string{"region": {"North", "South", "West"}},
 		}},
-		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DB:     appDB,
-		Grants: grants{f, map[string]string{"m-alice": "alice", "m-bob": "bob", "m-mallory": "mallory", "m-carol": "carol"}},
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DB:      appDB,
+		Grants:  kiban,
+		Members: kiban,
 		People: directory{
 			"c-alpha": {
 				{ID: "m-alice", DisplayName: "alice", Kind: "person", HasLinkedUser: true},
 				{ID: "m-bob", DisplayName: "bob", Kind: "person", HasLinkedUser: true},
 				{ID: "m-mallory", DisplayName: "mallory", Kind: "person", HasLinkedUser: true},
+				{ID: "m-erin", DisplayName: "erin", Kind: "person", HasLinkedUser: true},
 				{ID: "m-bobby", DisplayName: "bobby (no login)", Kind: "person"},
 				{ID: "m-bot", DisplayName: "bob-bot", Kind: "service", HasLinkedUser: true},
 			},
@@ -148,11 +163,20 @@ func TestReports(t *testing.T) {
 		}
 	}
 	const regions = "SELECT region_name FROM mart.dim_region ORDER BY 1"
-	draft := func(title, sql string) map[string]any {
-		return map[string]any{"title": title, "sql": sql, "chart": map[string]any{"kind": "bar", "x": "region_name"}}
+	draft := func(title string, sqls ...string) map[string]any {
+		var tiles []any
+		for _, q := range sqls {
+			tiles = append(tiles, map[string]any{"title": "", "sql": q, "chart": map[string]any{"kind": "bar", "x": "region_name"}, "show": "chart", "wide": true})
+		}
+		return map[string]any{"title": title, "tiles": tiles}
 	}
+	// rows are the first tile's rows of a run
 	rows := func(body map[string]any) string {
-		b, _ := json.Marshal(body["rows"])
+		tiles, _ := body["tiles"].([]any)
+		if len(tiles) == 0 {
+			return fmt.Sprint(body)
+		}
+		b, _ := json.Marshal(tiles[0].(map[string]any)["rows"])
 		return string(b)
 	}
 
@@ -162,6 +186,8 @@ func TestReports(t *testing.T) {
 	expect("create on another company's connection", st, 404, b)
 	st, b = call("alice", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": draft("", regions)})
 	expect("create without a title", st, 400, b)
+	st, b = call("alice", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": draft("No tiles")})
+	expect("create without tiles", st, 400, b)
 
 	st, b = call("alice", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": draft("Regions", regions)})
 	expect("create", st, 201, b)
@@ -178,14 +204,14 @@ func TestReports(t *testing.T) {
 	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Stale", regions), "version": 1})
 	expect("save from an old version", st, 409, b)
 
-	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Broken", "SELECT nope FROM nowhere"), "version": 2})
+	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Broken", regions, "SELECT nope FROM nowhere"), "version": 2})
 	expect("save broken SQL (drafts may be broken)", st, 200, b)
 	st, b = call("alice", "POST", path+"/publish", map[string]any{"version": 3})
 	expect("publish broken SQL", st, 400, b)
-	if !strings.HasPrefix(b["error"].(string), "not published") {
+	if !strings.HasPrefix(b["error"].(string), "not published: tile 2: ") {
 		t.Errorf("publish error: %v", b)
 	}
-	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Regions", regions), "version": 3})
+	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Regions", regions, "SELECT count(*) AS n FROM mart.dim_region"), "version": 3})
 	expect("fix", st, 200, b)
 	st, b = call("alice", "POST", path+"/publish", map[string]any{"version": 4})
 	expect("publish", st, 200, b)
@@ -229,8 +255,8 @@ func TestReports(t *testing.T) {
 	tick()
 	st, b = call("alice", "POST", path+"/run", nil)
 	expect("alice runs", st, 200, b)
-	if rows(b) != `[["North"]]` {
-		t.Errorf("alice sees %s", rows(b))
+	if rows(b) != `[["North"]]` || len(b["tiles"].([]any)) != 2 || b["data"] != "viewer" {
+		t.Errorf("alice sees %v", b)
 	}
 	st, b = call("bob", "POST", path+"/run", nil)
 	expect("bob runs", st, 200, b)
@@ -246,6 +272,68 @@ func TestReports(t *testing.T) {
 	}
 	st, b = call("bob", "PUT", path, map[string]any{"draft": draft("Bob's", regions), "version": 4})
 	expect("viewer saves", st, 403, b)
+
+	// Showing the sharer's data: erin, with no access of her own, sees alice's North rows.
+	shareData := func(by, member, name, relation, data string) (int, map[string]any) {
+		return call(by, "POST", path+"/shares", map[string]any{"member": member, "name": name, "relation": relation, "data": data})
+	}
+	st, b = shareData("alice", "m-erin", "erin", "viewer", "viewer")
+	expect("share with erin, her own data", st, 200, b)
+	tick()
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[]` || b["data"] != "viewer" {
+		t.Errorf("erin with her own data sees %v", b)
+	}
+	st, b = shareData("alice", "m-erin", "erin", "editor", "sharer")
+	expect("share the sharer's data with an editor", st, 400, b)
+	st, b = shareData("alice", "m-erin", "erin", "viewer", "everyone")
+	expect("share unknown data", st, 400, b)
+	st, b = shareData("alice", "m-erin", "erin", "viewer", "sharer")
+	expect("share alice's data with erin", st, 200, b)
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[["North"]]` || b["data"] != "sharer" {
+		t.Errorf("erin with alice's data sees %v", b)
+	}
+	// alice's scope grows: erin sees it once alice opens the report again.
+	f.Grant("c-alpha", "data_scope", "mart.region.South", "viewer", "alice")
+	tick()
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[["North"]]` {
+		t.Errorf("erin before alice returns sees %s", rows(b))
+	}
+	st, b = call("alice", "GET", path, nil)
+	if b["canShareData"] != true {
+		t.Errorf("alice's report: %v", b)
+	}
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[["North"],["South"]]` {
+		t.Errorf("erin after alice returns sees %s", rows(b))
+	}
+	// alice leaves the company: her data goes with her.
+	delete(kiban.members, "m-alice")
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[]` || b["data"] != "viewer" {
+		t.Errorf("erin after alice left sees %v", b)
+	}
+	kiban.members["m-alice"] = "alice"
+	// alice may no longer share her data: her shares fall back to each viewer's own.
+	f.Revoke("c-alpha", "connection", "mart", "data_sharer", "alice")
+	f.Revoke("c-alpha", "data_scope", "mart.region.South", "viewer", "alice")
+	tick()
+	st, b = call("alice", "GET", path, nil)
+	if b["canShareData"] != false {
+		t.Errorf("alice's report: %v", b)
+	}
+	st, b = call("erin", "POST", path+"/run", nil)
+	if rows(b) != `[]` {
+		t.Errorf("erin after alice lost data_sharer sees %s", rows(b))
+	}
+	st, b = shareData("alice", "m-erin", "erin", "viewer", "sharer")
+	expect("share data without data_sharer", st, 403, b)
+	st, b = call("alice", "GET", path+"/shares", nil)
+	if got, _ := json.Marshal(b["shares"]); !strings.Contains(string(got), `"data":"viewer","member":"m-erin","name":"erin","relation":"viewer"`) {
+		t.Errorf("shares: %s", got)
+	}
 
 	// Drafts after publishing do not reach viewers until the next publish.
 	st, b = call("alice", "PUT", path, map[string]any{"draft": draft("Regions, unpublished", "SELECT 1 AS one"), "version": 4})

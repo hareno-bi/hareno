@@ -6,7 +6,7 @@ import Editor from './sql/Editor'
 import { ReportView, Reports } from './sql/Reports'
 import './s3/s3.css'
 
-const pages = { sql: 'SQL editor', reports: 'Reports', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
+const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
 type Page = keyof typeof pages | 'report'
 // #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix
 const fromHash = (): { page: Page; id?: string } => {
