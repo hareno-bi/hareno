@@ -79,7 +79,6 @@ export default function App() {
           {(page === 'sql' || page === 'reports' || page === 'report') && (user === undefined ? null
             : user === null ? <SignIn demo={demo} />
             : <>
-              {demo.length > 0 && <TestAccounts demo={demo} />}
               {page === 'sql' && <Editor key={nav} reportId={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
               {page === 'reports' && <Reports key={nav} onSignedOut={signedOut} />}
               {page === 'report' && id && <ReportView key={nav} id={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
@@ -116,16 +115,6 @@ function SignIn({ demo }: { demo: Account[] }) {
         </div>
       )}
     </div>
-  )
-}
-
-// TestAccounts reminds a signed-in tester who else to try.
-function TestAccounts({ demo }: { demo: Account[] }) {
-  return (
-    <p className="note test-accounts">
-      Test accounts (sign out to switch):{' '}
-      {demo.map((a, i) => <span key={a.user}>{i > 0 && ' · '}<strong>{a.user}</strong> / <code>{a.password}</code>: {a.note}</span>)}
-    </p>
   )
 }
 

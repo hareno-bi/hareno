@@ -104,7 +104,6 @@ button:disabled { opacity: 0.6; cursor: default; }
 .accounts th, .accounts td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
 .accounts a.button { border: 1px solid var(--grid); color: var(--text); white-space: nowrap; padding: 4px 10px; }
 .signin:has(.accounts) { max-width: 860px; }
-.test-accounts { max-width: none; font-size: 13px; }
 button.copy { font-size: 11px; padding: 1px 6px; }
 .report-bar { flex-wrap: wrap; }
 .report-bar input.title { font: 600 16px var(--font-display); color: var(--text); background: var(--surface); border: 1px solid var(--grid);
