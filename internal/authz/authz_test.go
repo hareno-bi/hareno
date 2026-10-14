@@ -98,3 +98,19 @@ func TestCompaniesAndTokens(t *testing.T) {
 		t.Errorf("BETA: %v", err)
 	}
 }
+
+func TestFreshSkipsTheCache(t *testing.T) {
+	a, f, _ := setup()
+	ctx := context.Background()
+	f.Grant("c1", "report", "r1", "viewer", "alice")
+	if ok, _ := a.Allowed(ctx, "alice", "alice", "c1", []Item{report}); !ok[report] {
+		t.Fatal("granted access must be allowed")
+	}
+	f.Revoke("c1", "report", "r1", "viewer", "alice")
+	if ok, err := a.Fresh(ctx, "alice", "alice", "c1", []Item{report}); err != nil || ok[report] {
+		t.Fatalf("Fresh must see the revocation at once: %v %v", ok, err)
+	}
+	if ok, _ := a.Allowed(ctx, "alice", "alice", "c1", []Item{report}); ok[report] {
+		t.Fatal("Fresh's answer must replace the cached allow")
+	}
+}

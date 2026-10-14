@@ -71,7 +71,7 @@ const when = (s: string) => (isNaN(Date.parse(s)) ? s : new Date(s).toLocaleStri
 export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut }: {
   id: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
 }) {
-  const [report, setReport] = useState<{ published?: Published; canEdit: boolean } | null>(null)
+  const [report, setReport] = useState<{ published?: Published; canEdit: boolean; canExport: boolean } | null>(null)
   const [run, setRun] = useState<Run | null>(null)
   const [checked, setChecked] = useState<Date | null>(null) // last successful refresh
   const [failed, setFailed] = useState<string | null>(null) // why the last refresh failed
@@ -141,7 +141,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           : <>Live: checks for new data every 5 seconds{checked && `, last at ${checked.toLocaleTimeString()}`}.</>}
         {' '}
         {run?.data === 'sharer'
-          ? 'You are seeing the data of the person who shared this dashboard with you.'
+          ? `You are seeing the data of the person who shared this dashboard with you.${report.canExport ? ' Downloads hold your own rows only.' : ''}`
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
       <div className="grid dash-grid">
@@ -156,9 +156,15 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
                 : <TileOutput result={res as Result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />}
               {res?.columns && (
                 <p className="as-of muted">
-                  {res.stale && <span className="stale">Stale: could not refresh ({res.error}). </span>}
-                  {res.asOf ? `Data as of ${when(res.asOf)}` : `Data as of ${time(res.ranAt!)}`}
-                  {res.asOf && ` · queried ${time(res.ranAt!)}`}
+                  <span>
+                    {res.stale && <span className="stale">Stale: could not refresh ({res.error}). </span>}
+                    {res.asOf ? `Data as of ${when(res.asOf)}` : `Data as of ${time(res.ranAt!)}`}
+                    {res.asOf && ` · queried ${time(res.ranAt!)}`}
+                  </span>
+                  {report.canExport
+                    ? <a href={`/api/reports/${id}/tiles/${i}/csv`} download
+                        title={run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh'}>Download CSV</a>
+                    : <button disabled title="You may not download data from this source">Download CSV</button>}
                 </p>
               )}
             </section>

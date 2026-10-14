@@ -5,10 +5,16 @@ server {
     listen 55450;
     root /usr/share/nginx/html;
     gzip on;
-    gzip_types application/json application/javascript text/css;
+    gzip_types application/json application/javascript text/css text/csv;
     add_header X-Content-Type-Options nosniff;
     location / { try_files $uri /index.html; }
-    location ~ ^/(api|auth)/ {
+    location ~ ^/api/reports/[^/]+/tiles/[0-9]+/csv$ {  # downloads: streamed, queries up to 5 minutes
+        proxy_pass http://127.0.0.1:55453;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+    location ~ ^/(api|auth)/ {  # regex locations match in order: downloads first
         proxy_pass http://127.0.0.1:55453;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
