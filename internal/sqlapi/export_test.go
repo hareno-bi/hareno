@@ -27,3 +27,12 @@ func TestCell(t *testing.T) {
 		}
 	}
 }
+
+func TestWrap(t *testing.T) {
+	f := Filters{"region": {"North"}, `odd "name`: {"a", "b"}}
+	sql, args := f.wrap("SELECT 1 -- note\n;  \n", []string{"region", `odd "name`})
+	want := "SELECT * FROM (\nSELECT 1 -- note\n) AS hareno_tile WHERE \"region\"::text = ANY($1) AND \"odd \"\"name\"::text = ANY($2)"
+	if sql != want || len(args) != 2 {
+		t.Errorf("wrap = %q %v", sql, args)
+	}
+}

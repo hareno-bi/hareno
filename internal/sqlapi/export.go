@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,8 @@ import (
 //   - The query runs fresh, never from the results cache, under the downloader's own row scope,
 //     even where the report was shared showing the sharer's data: that is for viewing only.
 //   - Rows stream to the file as they arrive, up to the connection's ExportRows.
+//   - ?filters={"<column>": ["<value>", ...]} narrows it as the dashboard does (filters.go); the
+//     dashboard passes only the filters that apply to the tile.
 func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 	bearer, sub, ok := h.caller(w, r)
 	if !ok {
@@ -91,13 +95,23 @@ func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "no such tile")
 		return
 	}
-	audit = audit.With("revision", *rep.Published, "tile", n)
+	// The viewer's filters on this tile, as the dashboard applied them (filters.go).
+	var filters Filters
+	if f := r.URL.Query().Get("filters"); f != "" && (json.Unmarshal([]byte(f), &filters) != nil || !filters.valid()) {
+		fail(w, http.StatusBadRequest, `filters: expected {"<column>": ["<value>", ...]}`)
+		return
+	}
+	sql, args := body.Tiles[n].SQL, []any(nil)
+	if len(filters) > 0 {
+		sql, args = filters.wrap(sql, filters.on(slices.Collect(maps.Keys(filters))))
+	}
+	audit = audit.With("revision", *rep.Published, "tile", n, "filters", filters)
 
 	ex := conn.Exec
 	ex.MaxRows, ex.Timeout = conn.ExportRows, conn.ExportTimeout
 	out := csv.NewWriter(w)
 	rows := 0
-	truncated, err := ex.Each(ctx, scope, body.Tiles[n].SQL, func(cols []string) error {
+	truncated, err := ex.Each(ctx, scope, sql, args, func(cols []string) error {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", attachment(body, n))
 		w.Write([]byte("\uFEFF")) // so Excel reads UTF-8

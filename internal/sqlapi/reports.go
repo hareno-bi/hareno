@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,8 +39,9 @@ type Granter interface {
 
 // Draft is a report's content.
 type Draft struct {
-	Title string `json:"title"`
-	Tiles []Tile `json:"tiles"`
+	Title   string   `json:"title"`
+	Tiles   []Tile   `json:"tiles"`
+	Filters []string `json:"filters,omitempty"` // columns the filter bar offers (filters.go)
 }
 
 // Tile is one query on a dashboard and how it is shown.
@@ -54,8 +56,13 @@ type Tile struct {
 const maxTiles = 24
 
 func (d Draft) valid() bool {
-	if d.Title == "" || len(d.Title) > 200 || len(d.Tiles) == 0 || len(d.Tiles) > maxTiles {
+	if d.Title == "" || len(d.Title) > 200 || len(d.Tiles) == 0 || len(d.Tiles) > maxTiles || len(d.Filters) > maxFilters {
 		return false
+	}
+	for i, c := range d.Filters {
+		if !validColumn(c) || slices.Contains(d.Filters[:i], c) {
+			return false
+		}
 	}
 	for _, t := range d.Tiles {
 		if t.SQL == "" || len(t.Title) > 200 || len(t.Chart) > 16<<10 || (t.Show != "chart" && t.Show != "table") ||
@@ -399,13 +406,21 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 	reply(w, map[string]any{"revision": revision})
 }
 
-// RunReport runs every tile of the published revision; a tile that fails carries its error.
+// RunReport runs every tile of the published revision, narrowed by the viewer's filters
+// ({"filters": {"<column>": ["<value>", ...]}}, see filters.go); a tile that fails carries its error.
 func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	rep, rt, bearer, sub, ok := h.load(w, r)
 	if !ok {
 		return
 	}
 	ctx := r.Context()
+	var req struct {
+		Filters Filters `json:"filters"`
+	}
+	if !decode(w, r, &req) || !req.Filters.valid() {
+		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}}`)
+		return
+	}
 	if rep.Published == nil {
 		fail(w, http.StatusNotFound, "this report has not been published")
 		return
@@ -439,14 +454,39 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	// ponytail: tiles run one after another; run them concurrently when dashboards get slow.
-	tiles := make([]tileResult, len(body.Tiles))
-	for i, t := range body.Tiles {
-		tiles[i] = h.results.get(resultKey(rep.Connection, scope, t.SQL), mark, conn.Refresh, func() (*response, error) {
-			return h.exec(context.WithoutCancel(ctx), sub, rep, scope, t.SQL) // shared: one viewer leaving does not cancel it for the rest
+	get := func(sql string, args ...any) tileResult {
+		key := sql
+		if len(args) > 0 {
+			a, _ := json.Marshal(args)
+			key += "\x00" + string(a)
+		}
+		return h.results.get(resultKey(rep.Connection, scope, key), mark, conn.Refresh, func() (*response, error) {
+			return h.exec(context.WithoutCancel(ctx), sub, rep, scope, sql, args...) // shared: one viewer leaving does not cancel it for the rest
 		})
 	}
-	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope)
-	reply(w, map[string]any{"tiles": tiles, "data": data})
+	// Each tile unfiltered first: its columns say which filters apply, and its values are the
+	// filter bar's choices. Both runs are cached.
+	all := make([]tileResult, len(body.Tiles))
+	tiles := make([]tileResult, len(body.Tiles))
+	for i, t := range body.Tiles {
+		all[i], tiles[i] = get(t.SQL), get(t.SQL)
+		if all[i].response == nil {
+			continue
+		}
+		if on := req.Filters.on(all[i].Columns); len(on) > 0 {
+			sql, args := req.Filters.wrap(t.SQL, on)
+			tiles[i] = get(sql, args...)
+			tiles[i].Filtered = on
+		}
+	}
+	cols := slices.Clone(body.Filters)
+	for c := range req.Filters {
+		if !slices.Contains(cols, c) {
+			cols = append(cols, c)
+		}
+	}
+	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters)
+	reply(w, map[string]any{"tiles": tiles, "data": data, "options": options(cols, all)})
 }
 
 // scope is the row scope the report runs under for the user, and whose it is: their own, or for
@@ -480,14 +520,14 @@ func (h *Handler) ownScope(ctx context.Context, bearer, sub string, rep reportRo
 
 // exec runs sql on the report's connection under scope, without needing sql_user: the report's
 // editors chose the SQL.
-func (h *Handler) exec(ctx context.Context, sub string, rep reportRow, scope sqlexec.Scope, sql string) (*response, error) {
+func (h *Handler) exec(ctx context.Context, sub string, rep reportRow, scope sqlexec.Scope, sql string, args ...any) (*response, error) {
 	start := time.Now()
 	conn, ok := h.Connections[rep.Connection]
 	if !ok {
 		return nil, errors.New("the report's connection has been removed")
 	}
 	audit := h.Log.With("user", sub, "report", rep.ID, "connection", rep.Connection, "scope", scope)
-	res, err := conn.Exec.Run(ctx, scope, sql)
+	res, err := conn.Exec.Run(ctx, scope, sql, args...)
 	if err != nil {
 		audit.Info("report run failed", "error", err.Error())
 		return nil, err

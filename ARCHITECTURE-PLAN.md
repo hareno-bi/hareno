@@ -371,6 +371,12 @@ The following reflects the team's supplied response, not independently verified 
    - **Size:** rows stream to the file as they arrive, up to 1,000,000 per file by default (`export_rows`, per connection), with a 5-minute query limit (`export_timeout`). A file cut short ends with a line saying so; a query failing mid-file breaks off the download, so a partial file is not taken for complete.
    - **Spreadsheet safety:** text starting with `=`, `+`, `-`, `@`, tab or carriage return gets a leading apostrophe, so a spreadsheet does not run it as a formula. Numbers and dates are written as they are.
    - **Audit:** every download, refusal and failure is logged with user, report, revision, tile, row scope and row count.
+19. **Dashboard filters and linked charts (P2-08, owner decision 2026-10-14: automatic):**
+   - **How a filter reaches a tile:** a filter is a column name and a value. It applies to every tile whose result has a column of that name, by wrapping the tile's query (`SELECT * FROM (<tile SQL>) WHERE "<column>"::text = ANY($1)`). Tiles without the column are left as they are and say "Not filtered by …". Writing placeholders into the SQL was considered and not chosen: it needs every tile written for it.
+   - **Never widens access:** the filter narrows the tile's own result; the database's row policy still applies inside, and the filter's choices come from the viewer's own results.
+   - **Linked charts:** clicking a bar, point, slice or anywhere in a category's band filters every tile by that value of the chart's X column; clicking it again clears it.
+   - **Editors** choose which columns the filter bar offers. Filters are kept through the 5-second refresh, apply to CSV downloads, and are part of the results cache key.
+   - **Limits:** a filter applies to what a tile shows, so a tile limited to its top 10 is filtered after the limit; values compare as text, so time columns are not offered as choices. Typed filters on the underlying data come with the semantic model (P2-09).
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 

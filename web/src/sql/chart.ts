@@ -106,5 +106,5 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
 // A dashboard (a saved report): tiles, each a query and how it is shown, half or full width.
 export type Show = 'chart' | 'table'
 export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean }
-export type Dash = { title: string; tiles: TileDef[] }
+export type Dash = { title: string; tiles: TileDef[]; filters?: string[] } // filters: the columns the filter bar offers
 export const blank: Spec = { kind: 'bar', x: '', ys: [], split: '' }

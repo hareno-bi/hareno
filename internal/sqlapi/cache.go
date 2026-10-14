@@ -56,6 +56,8 @@ type tileResult struct {
 	AsOf  string    `json:"asOf,omitempty"`  // the source's load watermark it ran under
 	Stale bool      `json:"stale,omitempty"` // a refresh failed: this is the last good result
 	Error string    `json:"error,omitempty"` // why the refresh failed, or why there is no result
+	// Filtered are the viewer's filters that apply to this tile (filters.go).
+	Filtered []string `json:"filtered,omitempty"`
 }
 
 func (c *results) now() time.Time {

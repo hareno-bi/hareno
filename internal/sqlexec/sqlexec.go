@@ -53,8 +53,8 @@ var ErrNotQuery = errors.New("only a single query that returns rows is allowed")
 
 var attr = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-func (e Exec) Run(ctx context.Context, scope Scope, sql string) (res Result, err error) {
-	res.Truncated, err = e.Each(ctx, scope, sql, func(cols []string) error {
+func (e Exec) Run(ctx context.Context, scope Scope, sql string, args ...any) (res Result, err error) {
+	res.Truncated, err = e.Each(ctx, scope, sql, args, func(cols []string) error {
 		res.Columns = cols
 		return nil
 	}, func(row []any) error {
@@ -64,10 +64,10 @@ func (e Exec) Run(ctx context.Context, scope Scope, sql string) (res Result, err
 	return res, err
 }
 
-// Each runs sql like Run, but hands over the columns and then each row as it arrives instead of
+// Each runs sql like Run (args fill its $1, $2 ...), but hands over the columns and then each row as it arrives instead of
 // keeping them: for results too big to hold, such as exports. It reports whether rows remained
 // past MaxRows. An error from cols or row stops the query and is returned.
-func (e Exec) Each(ctx context.Context, scope Scope, sql string, cols func([]string) error, row func([]any) error) (truncated bool, err error) {
+func (e Exec) Each(ctx context.Context, scope Scope, sql string, args []any, cols func([]string) error, row func([]any) error) (truncated bool, err error) {
 	if !attr.MatchString(e.Role) {
 		return false, fmt.Errorf("invalid role %q", e.Role)
 	}
@@ -103,7 +103,7 @@ func (e Exec) Each(ctx context.Context, scope Scope, sql string, cols func([]str
 	if len(desc.Fields) == 0 {
 		return false, ErrNotQuery
 	}
-	rows, err := tx.Query(ctx, desc.SQL)
+	rows, err := tx.Query(ctx, desc.SQL, args...)
 	if err != nil {
 		return false, err
 	}
