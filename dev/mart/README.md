@@ -20,6 +20,7 @@ Both are dev-only passwords.
 
 ```sh
 go run ./dev/mart/loader -every 100ms    # 5 orders per load; Ctrl-C prints the load count
+go run ./dev/mart/loader -every 5s -cycle 6   # the public demo: one line added every 5 s for 30 s, then removed, each minute
 go run ./dev/mart/loader -clean          # remove loaded orders and restore the seed watermark
 ```
 
