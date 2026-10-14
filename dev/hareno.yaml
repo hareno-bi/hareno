@@ -1,9 +1,15 @@
 # Hareno API configuration for the dev stack (go run ./cmd/api -config dev/hareno.yaml).
+# ${HARENO_PUBLIC_HOST} comes from the environment, default localhost.
 # Dev-only credentials. Connections move to the application database in R1-4.
 kiban:
   gateway: http://localhost:55440
   client_id: hareno-backend
   client_secret_file: dev/kiban/hareno-backend-secret   # written by dev/kiban/seed.sh
+  realm: kiban
+  login_client_id: kiban-frontend  # Kiban's public browser client
+signin:                            # as the browser reaches them, through the demo proxy (dev/demo)
+  public_url: http://${HARENO_PUBLIC_HOST}:55450
+  kiban_url: http://${HARENO_PUBLIC_HOST}:55451
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

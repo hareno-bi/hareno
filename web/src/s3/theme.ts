@@ -134,3 +134,27 @@ export function echartsTheme(c: ChartStyle, t: Tokens) {
     logAxis: { ...axis },
   }
 }
+
+// treatment is a style's chart look as ECharts series settings: line and bar series, colours,
+// glow, the plot grid and the animation. The SQL editor's charts use it too.
+export function treatment(c: ChartStyle, t: Tokens) {
+  const token = (name: string) => t[name]
+  const colour = (i: number) => token(`--series-${(i % 6) + 1}`)
+  const glow = (i: number) => (c.glow ? { shadowBlur: c.glow, shadowColor: colour(i) } : {})
+  const area = (i: number) =>
+    c.areaFill === 'none' ? undefined
+      : c.areaFill === 'solid' ? { opacity: c.areaOpacity }
+      : { opacity: 1, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
+          { offset: 0, color: colour(i) + Math.round(c.areaOpacity * 255).toString(16).padStart(2, '0') },
+          { offset: 1, color: colour(i) + '00' }] } }
+  const line = (i: number) => ({
+    type: 'line', smooth: c.smooth, symbol: c.symbol, symbolSize: c.symbolSize, showSymbol: c.symbol !== 'none',
+    lineStyle: { width: c.lineWidth, ...glow(i) }, areaStyle: area(i),
+  })
+  const bar = (i: number) => ({
+    type: 'bar', barMaxWidth: c.barMaxWidth, barGap: c.barGap, itemStyle: { ...glow(i) },
+  })
+  const anim = { animationDuration: c.animationDuration, animationEasing: c.animationEasing as 'cubicOut' } // any ECharts easing name
+  const grid = { left: 8, right: 16, top: 40, bottom: 8, containLabel: true }
+  return { token, colour, glow, area, line, bar, anim, grid, legend: { top: 0, left: 0 } }
+}

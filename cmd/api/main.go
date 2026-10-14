@@ -18,8 +18,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rosschiu/kiban/sdk"
 	"go.yaml.in/yaml/v3"
+	"golang.org/x/oauth2"
 
 	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/signin"
 	"github.com/hareno-bi/hareno/internal/sqlapi"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
 )
@@ -29,7 +31,14 @@ type config struct {
 		Gateway          string `yaml:"gateway"`
 		ClientID         string `yaml:"client_id"`
 		ClientSecretFile string `yaml:"client_secret_file"`
+		Realm            string `yaml:"realm"`
+		LoginClientID    string `yaml:"login_client_id"`
 	} `yaml:"kiban"`
+	// Browser sign-in (internal/signin). Both addresses are as the browser reaches them.
+	Signin struct {
+		PublicURL string `yaml:"public_url"` // Hareno, e.g. http://localhost:55450
+		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
+	} `yaml:"signin"`
 	Connections map[string]struct {
 		Company string              `yaml:"company"`
 		Mode    string              `yaml:"mode"`
@@ -54,11 +63,16 @@ func main() {
 		w.Write([]byte("ok\n"))
 	})
 	if *cfgPath != "" {
-		h, err := sqlHandler(ctx, *cfgPath)
+		h, si, err := load(ctx, *cfgPath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		mux.Handle("POST /api/sql", h)
+		mux.Handle("POST /api/sql", si.Wrap(h))
+		mux.Handle("GET /api/connections", si.Wrap(http.HandlerFunc(h.List)))
+		mux.HandleFunc("GET /api/me", si.Me)
+		mux.HandleFunc("GET /auth/login", si.Login)
+		mux.HandleFunc("GET /auth/callback", si.Callback)
+		mux.HandleFunc("POST /auth/logout", si.LogoutHandler)
 	}
 	srv := &http.Server{Addr: *addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -74,24 +88,43 @@ func main() {
 	}
 }
 
-func sqlHandler(ctx context.Context, path string) (*sqlapi.Handler, error) {
+// load reads the configuration file. ${VAR} in it is replaced from the environment;
+// ${HARENO_PUBLIC_HOST} defaults to localhost.
+func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	text := os.Expand(string(b), func(k string) string {
+		if v := os.Getenv(k); v != "" || k != "HARENO_PUBLIC_HOST" {
+			return v
+		}
+		return "localhost"
+	})
 	var cfg config
-	dec := yaml.NewDecoder(strings.NewReader(string(b)))
+	dec := yaml.NewDecoder(strings.NewReader(text))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
 	secret, err := os.ReadFile(cfg.Kiban.ClientSecretFile)
 	if err != nil {
-		return nil, fmt.Errorf("kiban client secret: %w", err)
+		return nil, nil, fmt.Errorf("kiban client secret: %w", err)
 	}
 	k, err := sdk.New(ctx, sdk.Config{GatewayURL: cfg.Kiban.Gateway, ClientID: cfg.Kiban.ClientID, ClientSecret: strings.TrimSpace(string(secret))})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	oidc := "/auth/realms/" + cfg.Kiban.Realm + "/protocol/openid-connect"
+	si := &signin.Signin{
+		OAuth: oauth2.Config{
+			ClientID:    cfg.Kiban.LoginClientID,
+			RedirectURL: cfg.Signin.PublicURL + "/auth/callback",
+			Scopes:      []string{"openid"},
+			Endpoint:    oauth2.Endpoint{AuthURL: cfg.Signin.KibanURL + oidc + "/auth", TokenURL: cfg.Kiban.Gateway + oidc + "/token"},
+		},
+		Logout: cfg.Signin.KibanURL + oidc + "/logout",
+		Home:   cfg.Signin.PublicURL + "/",
 	}
 	h := &sqlapi.Handler{
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
@@ -100,11 +133,11 @@ func sqlHandler(ctx context.Context, path string) (*sqlapi.Handler, error) {
 	}
 	for name, c := range cfg.Connections {
 		if c.Mode != "database-enforced" {
-			return nil, fmt.Errorf("connection %s: the SQL editor needs mode database-enforced, not %q", name, c.Mode)
+			return nil, nil, fmt.Errorf("connection %s: the SQL editor needs mode database-enforced, not %q", name, c.Mode)
 		}
 		db, err := pgxpool.New(ctx, c.GateDSN)
 		if err != nil {
-			return nil, fmt.Errorf("connection %s: %w", name, err)
+			return nil, nil, fmt.Errorf("connection %s: %w", name, err)
 		}
 		h.Connections[name] = sqlapi.Connection{
 			Company: c.Company,
@@ -112,5 +145,5 @@ func sqlHandler(ctx context.Context, path string) (*sqlapi.Handler, error) {
 			Scope:   c.Scope,
 		}
 	}
-	return h, nil
+	return h, si, nil
 }

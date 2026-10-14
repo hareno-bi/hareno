@@ -5,7 +5,7 @@
 | Dev data mart | `docker compose up -d` | `localhost:55433`, see [mart/README.md](mart/README.md) |
 | App database | `docker compose up -d` | `localhost:55434`, db/user `hareno`, password `dev` |
 | Result cache (Valkey 8.1) | `docker compose up -d` | `localhost:55435`, no auth, not persisted |
-| Public demo of `web/dist` (nginx) | `docker compose --profile demo up -d demo` | `0.0.0.0:55450`, **public**, static files only |
+| Public demo (nginx): `web/dist` with the API, and Kiban's login pages | see [Public demo](#public-demo) | `0.0.0.0:55450` and `0.0.0.0:55451`, **public** |
 | Kiban v0.1.2 | `dev/kiban/up.sh` | gateway `http://localhost:55440`, Keycloak `localhost:55441` |
 
 `dev/mart/check.sh` runs the mart's known-answer checks.
@@ -46,8 +46,40 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
   -d '{"connection": "mart", "sql": "SELECT region_name FROM mart.dim_region"}'
 ```
 
+`GET /api/connections` lists the connections the user may query.
+
 The endpoint needs the dev mart and dev Kiban. `$TOKEN` is a Kiban user's access token; `seed.sh`'s `login` function shows how to get one. Every statement is written to the audit log on stdout.
 
 Reset: `docker compose -p hareno-kiban -f dev/kiban/docker-compose.yml down -v`, then `dev/kiban/up.sh`.
 
 `docker-compose.yml` and `.env.example` are copied unmodified from Kiban v0.1.2 `deploy/quickstart/` (Apache-2.0; see `LICENSE-kiban` and `NOTICE-kiban`). To upgrade, copy them from the new tag; a new `.env.example` key needs `dev/kiban/.env` regenerated.
+
+## Browser sign-in and the SQL editor
+
+The browser signs in through Hareno's API (`internal/signin`): `/auth/login` sends it to Kiban's login page, and `/auth/callback` exchanges the code on the server and sets an httpOnly session cookie. The browser never holds a Kiban token. Sessions live in the API's memory, so restarting the API signs everyone out.
+
+Local development, with the API on 55453:
+
+```sh
+cd web && npm run dev      # Vite proxies /api and /auth to 127.0.0.1:55453
+```
+
+Then open the SQL editor and sign in as alice, bob or carol.
+
+## Public demo
+
+For testing from another computer. Replace the address with the server's public one:
+
+```sh
+export HARENO_PUBLIC_HOST=139.99.122.192
+HARENO_PUBLIC_ORIGIN=http://$HARENO_PUBLIC_HOST:55450 dev/kiban/up.sh   # registers the origin with Kiban
+(cd web && npm run build)
+go run ./cmd/api -addr 127.0.0.1:55453 -config dev/hareno.yaml &
+docker compose --profile demo up -d demo
+```
+
+- `http://$HARENO_PUBLIC_HOST:55450` serves the frontend, with `/api` and `/auth` passed to the API.
+- `:55451` serves Kiban's login pages only, not Kiban's API or admin console (`dev/demo/nginx.conf.template`).
+- Kiban issues tokens for `http://localhost:55440`, so the proxy forwards with that host name and rewrites the replies.
+- Keycloak marks its cookies Secure, which browsers drop on plain HTTP, so the proxy removes the flag.
+- **Dev only.** There is no TLS, so passwords cross the network unencrypted. Use only the seeded dev accounts.

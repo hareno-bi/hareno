@@ -20,5 +20,10 @@ if [ ! -f .env ]; then
     openssl rand -base64 24 > secrets-in/superadmin-password
     chmod 600 secrets-in/superadmin-password
 fi
+# HARENO_PUBLIC_ORIGIN (e.g. http://139.99.122.192:55450) lets a browser elsewhere sign in through
+# the demo proxy (dev/demo/nginx.conf.template); Kiban only redirects back to registered origins.
+if [ -n "${HARENO_PUBLIC_ORIGIN:-}" ]; then
+    sed -i "s|^KIBAN_EXTRA_ORIGINS=.*|KIBAN_EXTRA_ORIGINS=http://localhost:55440,$HARENO_PUBLIC_ORIGIN|" .env
+fi
 docker compose -p hareno-kiban up -d --wait
 ./seed.sh
