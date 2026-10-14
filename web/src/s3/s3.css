@@ -106,3 +106,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 .signin:has(.accounts) { max-width: 860px; }
 .test-accounts { max-width: none; font-size: 13px; }
 button.copy { font-size: 11px; padding: 1px 6px; }
+.report-bar { flex-wrap: wrap; }
+.report-bar input.title { font: 600 16px var(--font-display); color: var(--text); background: var(--surface); border: 1px solid var(--grid);
+  border-radius: var(--radius); padding: 5px 10px; min-width: 260px; flex: 0 1 420px; }
+.report-bar .new, .reports .new { margin-left: auto; }
+.reports table { width: 100%; border-collapse: collapse; }
+.reports th { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; }
+.reports th, .reports td { padding: 8px; border-bottom: 1px solid var(--grid); }
+.reports .actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+.report .toolbar h2 { margin: 0 8px 0 0; }
+.report .toolbar { flex-wrap: wrap; margin-bottom: 4px; }

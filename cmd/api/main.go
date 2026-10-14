@@ -20,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 	"golang.org/x/oauth2"
 
+	"github.com/hareno-bi/hareno/internal/appdb"
 	"github.com/hareno-bi/hareno/internal/authz"
 	"github.com/hareno-bi/hareno/internal/signin"
 	"github.com/hareno-bi/hareno/internal/sqlapi"
@@ -41,6 +42,7 @@ type config struct {
 		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
 		DemoAccounts []signin.Account `yaml:"demo_accounts"`
 	} `yaml:"signin"`
+	AppDB       string `yaml:"app_db"` // application database DSN
 	Connections map[string]struct {
 		Company string              `yaml:"company"`
 		Mode    string              `yaml:"mode"`
@@ -71,6 +73,13 @@ func main() {
 		}
 		mux.Handle("POST /api/sql", si.Wrap(h))
 		mux.Handle("GET /api/connections", si.Wrap(http.HandlerFunc(h.List)))
+		mux.Handle("GET /api/reports", si.Wrap(http.HandlerFunc(h.ListReports)))
+		mux.Handle("POST /api/reports", si.Wrap(http.HandlerFunc(h.CreateReport)))
+		mux.Handle("GET /api/reports/{id}", si.Wrap(http.HandlerFunc(h.GetReport)))
+		mux.Handle("PUT /api/reports/{id}", si.Wrap(http.HandlerFunc(h.SaveReport)))
+		mux.Handle("DELETE /api/reports/{id}", si.Wrap(http.HandlerFunc(h.DeleteReport)))
+		mux.Handle("POST /api/reports/{id}/publish", si.Wrap(http.HandlerFunc(h.PublishReport)))
+		mux.Handle("POST /api/reports/{id}/run", si.Wrap(http.HandlerFunc(h.RunReport)))
 		mux.HandleFunc("GET /api/me", si.Me)
 		mux.HandleFunc("GET /auth/login", si.Login)
 		mux.HandleFunc("GET /auth/callback", si.Callback)
@@ -129,7 +138,16 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		Home:   cfg.Signin.PublicURL + "/",
 		Demo:   cfg.Signin.DemoAccounts,
 	}
+	appDB, err := pgxpool.New(ctx, cfg.AppDB)
+	if err != nil {
+		return nil, nil, fmt.Errorf("app_db: %w", err)
+	}
+	if err := appdb.Migrate(ctx, appDB); err != nil {
+		return nil, nil, err
+	}
 	h := &sqlapi.Handler{
+		DB:          appDB,
+		Grants:      k,
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
 		Connections: map[string]sqlapi.Connection{},
 		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
@@ -142,7 +160,12 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		if err != nil {
 			return nil, nil, fmt.Errorf("connection %s: %w", name, err)
 		}
+		id, err := appdb.Connection(ctx, appDB, name, c.Company, c.Mode)
+		if err != nil {
+			return nil, nil, err
+		}
 		h.Connections[name] = sqlapi.Connection{
+			ID:      id,
 			Company: c.Company,
 			Exec:    sqlexec.Exec{DB: db, Role: c.SQLRole, Timeout: c.Timeout, MaxRows: c.MaxRows},
 			Scope:   c.Scope,

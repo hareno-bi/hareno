@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hareno-bi/hareno/internal/authz"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
@@ -30,13 +31,16 @@ type Connection struct {
 	Company string              // Kiban company code that owns the connection, e.g. ALPHA
 	Exec    sqlexec.Exec        // runs as the connection's gate login
 	Scope   map[string][]string // scope attributes and their possible values, e.g. region: [North, South, West]
+	ID      int64               // the connection's row in the app database, which fixes its company and mode
 }
 
 // Handler serves POST /api/sql.
 type Handler struct {
 	Authz       *authz.Authz
 	Connections map[string]Connection
-	Log         *slog.Logger // audit log
+	Log         *slog.Logger  // audit log
+	DB          *pgxpool.Pool // application database: saved reports
+	Grants      Granter
 }
 
 type request struct {
@@ -53,7 +57,7 @@ type response struct {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	start := time.Now()
-	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer := bearerOf(r)
 	sub, err := h.Authz.User(ctx, bearer)
 	if err != nil {
 		fail(w, http.StatusUnauthorized, "sign in required")
@@ -112,7 +116,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // List serves GET /api/connections: the connections the user may query with SQL, by name.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer := bearerOf(r)
 	sub, err := h.Authz.User(ctx, bearer)
 	if err != nil {
 		fail(w, http.StatusUnauthorized, "sign in required")
@@ -169,6 +173,11 @@ func (h *Handler) access(ctx context.Context, bearer, sub, company, name string,
 		}
 	}
 	return scope, ok[use], nil
+}
+
+func bearerOf(r *http.Request) string {
+	b, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return b
 }
 
 func fail(w http.ResponseWriter, status int, msg string) {

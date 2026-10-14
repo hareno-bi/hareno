@@ -3,13 +3,15 @@ import Charts from './s3/Charts'
 import Matrix from './s3/Matrix'
 import { styles, useTheme, type Pref } from './s3/theme'
 import Editor from './sql/Editor'
+import { ReportView, Reports } from './sql/Reports'
 import './s3/s3.css'
 
-const pages = { sql: 'SQL editor', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
-type Page = keyof typeof pages
-const fromHash = (): Page => {
-  const p = location.hash.slice(2)
-  return p in pages ? (p as Page) : 'sql'
+const pages = { sql: 'SQL editor', reports: 'Reports', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
+type Page = keyof typeof pages | 'report'
+// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix
+const fromHash = (): { page: Page; id?: string } => {
+  const [p, id] = location.hash.slice(2).split('/')
+  return p in pages || p === 'report' ? { page: p as Page, id } : { page: 'sql' }
 }
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
@@ -32,12 +34,16 @@ function useUser() {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>(fromHash)
+  const [{ page, id }, setRoute] = useState(fromHash)
+  const [nav, setNav] = useState(0) // remounts the page on every navigation, e.g. New query from a saved one
   const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme()
   const { user, setUser, demo, signOut } = useUser()
   const signedOut = useCallback(() => setUser(null), [setUser])
   useEffect(() => {
-    const on = () => setPage(fromHash())
+    const on = () => {
+      setRoute(fromHash())
+      setNav((n) => n + 1)
+    }
     addEventListener('hashchange', on)
     return () => removeEventListener('hashchange', on)
   }, [])
@@ -46,8 +52,8 @@ export default function App() {
       <header className="top">
         <strong className="brand">Hareno</strong>
         <nav>
-          {(Object.keys(pages) as Page[]).map((p) => (
-            <a key={p} href={`#/${p}`} aria-current={p === page ? 'page' : undefined}>{pages[p]}</a>
+          {(Object.keys(pages) as (keyof typeof pages)[]).map((p) => (
+            <a key={p} href={`#/${p}`} aria-current={p === page || (p === 'reports' && page === 'report') ? 'page' : undefined}>{pages[p]}</a>
           ))}
         </nav>
         <label className="theme">
@@ -70,11 +76,13 @@ export default function App() {
         <main>
           {page === 'charts' && <Charts style={style} vars={vars} themeKey={key} fontsReady={fontsReady} />}
           {page === 'matrix' && <Matrix />}
-          {page === 'sql' && (user === undefined ? null
+          {(page === 'sql' || page === 'reports' || page === 'report') && (user === undefined ? null
             : user === null ? <SignIn demo={demo} />
             : <>
               {demo.length > 0 && <TestAccounts demo={demo} />}
-              <Editor style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />
+              {page === 'sql' && <Editor key={nav} reportId={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+              {page === 'reports' && <Reports key={nav} onSignedOut={signedOut} />}
+              {page === 'report' && id && <ReportView key={nav} id={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
             </>)}
         </main>
       </div>
@@ -85,7 +93,7 @@ export default function App() {
 function SignIn({ demo }: { demo: Account[] }) {
   return (
     <div className="card signin">
-      <h2>Sign in to use the SQL editor</h2>
+      <h2>Sign in to use Hareno</h2>
       <p className="muted">You sign in with your Kiban account. What you can query, and which rows you see, comes from your Kiban access.</p>
       <a className="button primary" href="/auth/login">Sign in</a>
       {demo.length > 0 && (

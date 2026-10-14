@@ -48,6 +48,13 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may query.
 
+Saved reports are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
+- **Changing a report's SQL** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` on its connection.
+- **Viewing the published revision** needs only `viewer` (or `editor`), and runs under the viewer's own row scope.
+- **The creator** becomes the report's editor.
+
+The API keeps reports in the app database and applies its migrations at startup (`internal/appdb`). The first time it sees a configured connection, it records the connection's company and mode. If the configuration later gives a different company or mode, the API refuses to start, because both are fixed for a connection's life.
+
 The endpoint needs the dev mart and dev Kiban. `$TOKEN` is a Kiban user's access token; `seed.sh`'s `login` function shows how to get one. Every statement is written to the audit log on stdout.
 
 Reset: `docker compose -p hareno-kiban -f dev/kiban/docker-compose.yml down -v`, then `dev/kiban/up.sh`.

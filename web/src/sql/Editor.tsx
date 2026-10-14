@@ -1,18 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import type { EChartsCoreOption } from 'echarts/core'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { Chart } from '../s3/Chart'
-import { fmtCompact } from '../s3/format'
-import { treatment, type Style, type Tokens } from '../s3/theme'
+import type { Style, Tokens } from '../s3/theme'
+import { chartOption, fit, isNum, kinds, type Kind, type Result, type Spec } from './chart'
+import Table from './Table'
 
-// The SQL editor (Phase 2 round 1, R1-3): write a query against a connection, see the rows, and
-// build a chart from them. Rows are filtered by the database for the signed-in user (R1-1/R1-2).
-type Value = string | number | boolean | null
-type Result = { columns: string[]; rows: Value[][]; truncated: boolean }
-const kinds = { bar: 'Column', hbar: 'Bar', line: 'Line', area: 'Area', stacked: 'Stacked column', pie: 'Pie', scatter: 'Scatter' } as const
-type Kind = keyof typeof kinds
-type Spec = { kind: Kind; x: string; ys: string[]; split: string }
-
+// The SQL editor (Phase 2 round 1, R1-3/R1-4): write a query against a connection, see the rows,
+// build a chart from them, and save and publish it as a report. Rows are filtered by the database
+// for the signed-in user (R1-1/R1-2).
 const sample = `-- Revenue by region and month. Rows outside your data scope are filtered by the database.
 SELECT r.region_name AS region,
        to_char(o.ordered_at, 'YYYY-MM') AS month,
@@ -33,12 +27,24 @@ function remembered() {
   }
 }
 
-export default function Editor({ style, vars, themeKey, fontsReady, onSignedOut }: {
-  style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
+type Draft = { title: string; sql: string; chart: Spec }
+const json = { 'Content-Type': 'application/json' }
+
+export default function Editor({ reportId, style, vars, themeKey, fontsReady, onSignedOut }: {
+  reportId?: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
 }) {
   const [connections, setConnections] = useState<string[] | null>(null)
   const [connection, setConnection] = useState('')
-  const [sql, setSql] = useState(remembered)
+  const [sql, setSql] = useState(() => (reportId ? '' : remembered()))
+  // the saved report this edits: id, the draft version the server has, its published revision,
+  // and the draft as last saved (to show unsaved changes)
+  const [id, setId] = useState(reportId)
+  const [title, setTitle] = useState('')
+  const [version, setVersion] = useState(0)
+  const [published, setPublished] = useState<number | null>(null)
+  const [saved, setSaved] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(!reportId)
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -55,12 +61,88 @@ export default function Editor({ style, vars, themeKey, fontsReady, onSignedOut 
     }, () => setError('Hareno is not reachable.'))
   }, [onSignedOut])
 
+  useEffect(() => {
+    if (!reportId) return
+    fetch(`/api/reports/${reportId}`).then(async (r) => {
+      if (r.status === 401) return onSignedOut()
+      const body = await r.json()
+      if (!r.ok) return setError(body.error)
+      if (!body.draft) {
+        location.hash = `#/report/${reportId}` // a viewer: show the published report
+        return
+      }
+      const d: Draft = body.draft
+      setTitle(d.title)
+      setSql(d.sql)
+      if (d.chart?.kind) setSpec(d.chart)
+      setConnection(body.connection)
+      setVersion(body.version)
+      setPublished(body.published?.revision ?? null)
+      setSaved(JSON.stringify(d))
+      setLoaded(true)
+    }, () => setError('Hareno is not reachable.'))
+  }, [reportId, onSignedOut])
+
+  const draft: Draft = { title: title.trim(), sql, chart: spec }
+  const dirty = JSON.stringify(draft) !== saved
+
+  // save stores the draft (creating the report the first time) and returns where it is, or null.
+  async function save(): Promise<{ id: string; version: number } | null> {
+    if (!draft.title) {
+      setError('Give the report a title before saving.')
+      return null
+    }
+    const r = await fetch(id ? `/api/reports/${id}` : '/api/reports', {
+      method: id ? 'PUT' : 'POST', headers: json,
+      body: JSON.stringify(id ? { draft, version } : { connection, draft }),
+    })
+    if (r.status === 401) {
+      onSignedOut()
+      return null
+    }
+    const body = await r.json()
+    if (!r.ok) {
+      setError(body.error ?? `HTTP ${r.status}`)
+      return null
+    }
+    if (!id) {
+      setId(body.id)
+      history.replaceState(null, '', `#/sql/${body.id}`)
+    }
+    setVersion(body.version)
+    setSaved(JSON.stringify(draft))
+    return { id: id ?? body.id, version: body.version }
+  }
+
+  async function act(f: () => Promise<unknown>) {
+    setBusy(true)
+    setError(null)
+    try {
+      await f()
+    } catch {
+      setError('Hareno is not reachable.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const publish = () => act(async () => {
+    const at = dirty || !id ? await save() : { id, version }
+    if (!at) return
+    const r = await fetch(`/api/reports/${at.id}/publish`, { method: 'POST', headers: json, body: JSON.stringify({ version: at.version }) })
+    const body = await r.json()
+    if (!r.ok) return setError(body.error ?? `HTTP ${r.status}`)
+    setPublished(body.revision)
+  })
+
   async function run() {
     if (!connection || running) return
-    try {
-      localStorage.setItem('hareno-sql', sql)
-    } catch {
-      // not remembered; fine
+    if (!id) {
+      try {
+        localStorage.setItem('hareno-sql', sql)
+      } catch {
+        // not remembered; fine
+      }
     }
     setRunning(true)
     setError(null)
@@ -93,15 +175,30 @@ export default function Editor({ style, vars, themeKey, fontsReady, onSignedOut 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
   const option = useMemo(() => (result && spec.x && spec.ys.length ? chartOption(result, spec, style, vars) : null), [result, spec, themeKey])
 
+  // a saved report runs once it has loaded
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once per load
+  useEffect(() => { if (reportId && loaded && connection) run() }, [loaded, connection])
+
   if (connections && connections.length === 0) {
     return <p className="note">You have no connections you may query with SQL. Ask your administrator for access.</p>
   }
   return (
     <div className="sql">
+      <div className="toolbar report-bar">
+        <input className="title" aria-label="Report title" placeholder="Untitled report" value={title} maxLength={200}
+          onChange={(e) => setTitle(e.target.value)} />
+        <button onClick={() => act(save)} disabled={busy || !loaded || (!!id && !dirty)}>Save</button>
+        <button className="primary" onClick={publish} disabled={busy || !loaded}>Publish</button>
+        <span className="muted" aria-live="polite">
+          {!loaded ? 'Loading…' : dirty ? (id ? 'Unsaved changes' : 'Not saved') : 'Saved'}
+          {published !== null && <> · <a href={`#/report/${id}`}>published revision {published}</a></>}
+        </span>
+        <a className="new" href="#/sql">New query</a>
+      </div>
       <div className="toolbar">
         <label>
           Connection{' '}
-          <select value={connection} onChange={(e) => setConnection(e.target.value)} disabled={!connections}>
+          <select value={connection} onChange={(e) => setConnection(e.target.value)} disabled={!connections || !!id}>
             {(connections ?? []).map((c) => <option key={c}>{c}</option>)}
           </select>
         </label>
@@ -131,23 +228,6 @@ export default function Editor({ style, vars, themeKey, fontsReady, onSignedOut 
       )}
     </div>
   )
-}
-
-const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
-
-// fit keeps the chart choices that still apply to a new result, and picks defaults for the rest:
-// X the first text column, Y the first number column after it.
-function fit(s: Spec, r: Result): Spec {
-  const has = (c: string) => r.columns.includes(c)
-  const nums = r.columns.filter((_, i) => isNum(r, i))
-  const x = has(s.x) ? s.x : (r.columns.find((_, i) => !isNum(r, i)) ?? r.columns[0] ?? '')
-  const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
-  return {
-    kind: s.kind,
-    x,
-    ys: ys.length ? ys : nums.filter((c) => c !== x).slice(0, 1),
-    split: has(s.split) && s.split !== x ? s.split : '',
-  }
 }
 
 function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpec: (s: Spec) => void }) {
@@ -186,110 +266,3 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   )
 }
 
-const label = (v: Value) => (v === null ? '(null)' : String(v))
-const MAX_SERIES = 24
-
-// chartOption turns rows into an ECharts option. With "Series by", rows become one series per
-// value of that column; rows with the same X (and series) are added together.
-function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): EChartsCoreOption {
-  const { token, line, bar, anim, grid, legend } = treatment(style.chart, vars)
-  const col = (c: string) => r.columns.indexOf(c)
-  const xi = col(s.x), si = s.split ? col(s.split) : -1
-  const fmt = { valueFormatter: (v: number) => (typeof v === 'number' ? v.toLocaleString() : v) }
-  const add = (m: Map<string, number>, k: string, v: Value) => m.set(k, (m.get(k) ?? 0) + (typeof v === 'number' ? v : 0))
-
-  if (s.kind === 'pie') {
-    const m = new Map<string, number>()
-    r.rows.forEach((row) => add(m, label(row[xi]), row[col(s.ys[0])]))
-    return {
-      ...anim, legend: { bottom: 0, type: 'scroll' }, tooltip: { trigger: 'item', ...fmt },
-      series: [{
-        type: 'pie', radius: style.chart.donutRadius, center: ['50%', '44%'], padAngle: 1,
-        itemStyle: { borderRadius: style.chart.barRadius, borderColor: token('--surface'), borderWidth: style.chart.barRadius ? 0 : 1 },
-        data: [...m].map(([name, value]) => ({ name, value })),
-      }],
-    }
-  }
-
-  // series: name -> values keyed by X
-  const series = new Map<string, Map<string, number>>()
-  const xs = new Map<string, Value>()
-  for (const row of r.rows) {
-    const x = label(row[xi])
-    xs.set(x, row[xi])
-    for (const y of s.ys) {
-      const name = si >= 0 ? label(row[si]) : y
-      if (!series.has(name)) {
-        if (series.size >= MAX_SERIES) continue
-        series.set(name, new Map())
-      }
-      add(series.get(name)!, x, row[col(y)])
-    }
-  }
-  const names = [...series.keys()]
-
-  if (s.kind === 'scatter') {
-    return {
-      ...anim, grid: { ...grid, bottom: 28, left: 24 }, legend, tooltip: { trigger: 'item' },
-      xAxis: { type: 'value', name: s.x, nameLocation: 'middle', nameGap: 28, scale: true },
-      yAxis: { type: 'value', scale: true, axisLabel: { formatter: fmtCompact } },
-      series: names.map((n) => ({
-        type: 'scatter', name: n, symbolSize: 7, itemStyle: { opacity: 0.8 },
-        data: [...series.get(n)!].map(([x, v]) => [xs.get(x), v]),
-      })),
-    }
-  }
-
-  const cats = [...xs.keys()]
-  const horizontal = s.kind === 'hbar'
-  const catAxis = { type: 'category', data: cats, boundaryGap: s.kind !== 'line' && s.kind !== 'area', inverse: horizontal }
-  const valAxis = { type: 'value', axisLabel: { formatter: fmtCompact } }
-  const rad = style.chart.barRadius
-  return {
-    ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt },
-    xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? catAxis : valAxis,
-    series: names.map((n, i) => {
-      const data = cats.map((c) => series.get(n)!.get(c) ?? null)
-      if (s.kind === 'line') return { ...line(i), areaStyle: undefined, name: n, data, connectNulls: true }
-      if (s.kind === 'area') return { ...line(i), areaStyle: line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, connectNulls: true }
-      const stacked = s.kind === 'stacked'
-      return {
-        ...bar(i), name: n, data, stack: stacked ? 'total' : undefined,
-        itemStyle: { ...bar(i).itemStyle, borderRadius: stacked && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },
-      }
-    }),
-  }
-}
-
-const ROW = 30
-
-function Table({ result }: { result: Result }) {
-  const scroller = useRef<HTMLDivElement>(null)
-  const virt = useVirtualizer({ count: result.rows.length, getScrollElement: () => scroller.current, estimateSize: () => ROW, overscan: 16 })
-  const nums = result.columns.map((_, i) => isNum(result, i))
-  const template = `repeat(${result.columns.length}, minmax(120px, 1fr))`
-  const minWidth = result.columns.length * 120
-  if (result.rows.length === 0) return <div className="state empty">The query returned no rows.</div>
-  return (
-    <div ref={scroller} className="matrix sql-table" role="table" aria-rowcount={result.rows.length + 1} tabIndex={0}>
-      <div className="m-head" role="rowgroup">
-        <div className="m-row" role="row" style={{ gridTemplateColumns: template, minWidth }}>
-          {result.columns.map((c, i) => <div key={i} role="columnheader" className={'m-cell' + (nums[i] ? ' num' : '')}>{c}</div>)}
-        </div>
-      </div>
-      <div role="rowgroup" style={{ height: virt.getTotalSize(), position: 'relative' }}>
-        {virt.getVirtualItems().map((v) => (
-          <div key={v.index} role="row" aria-rowindex={v.index + 2} className="m-row abs"
-            style={{ gridTemplateColumns: template, minWidth, height: ROW, transform: `translateY(${v.start}px)` }}>
-            {result.rows[v.index].map((val, i) => (
-              <div key={i} role="cell" className={'m-cell' + (nums[i] ? ' num' : '') + (val === null ? ' muted' : '')}>
-                {val === null ? 'null' : String(val)}
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
