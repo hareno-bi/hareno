@@ -3,10 +3,10 @@
 // Kiban token. It also works on plain-HTTP dev origins, where the browser SDK cannot run PKCE
 // (crypto.subtle needs a secure context).
 //
-//	GET  /auth/login     starts the authorization code flow with PKCE
+//	GET  /auth/login     starts the authorization code flow with PKCE (?user= pre-fills the name)
 //	GET  /auth/callback  exchanges the code and sets the session cookie
 //	POST /auth/logout    ends the session here and in Kiban
-//	GET  /api/me         the signed-in user's display name, or null
+//	GET  /api/me         the signed-in user's display name, or null; and any test accounts
 //
 // Wrap puts the session's access token on API requests as Authorization: Bearer, refreshing it
 // when it expires, so the API handlers stay token-based.
@@ -37,9 +37,17 @@ type Signin struct {
 	OAuth  oauth2.Config // Endpoint.AuthURL is the browser's view of Kiban; TokenURL the server's
 	Logout string        // Kiban's end-session URL, as the browser reaches it
 	Home   string        // Hareno's public address, where the browser goes after login and logout
+	Demo   []Account     // dev and test stacks only: accounts shown on the sign-in page, passwords included
 
 	mu       sync.Mutex
 	sessions map[string]*session // ponytail: in memory, so a restart signs everyone out and replicas do not share; move to Valkey with R1-5's cache
+}
+
+// Account is a test account listed on the sign-in page of a dev or demo stack.
+type Account struct {
+	User     string `json:"user" yaml:"user"`
+	Password string `json:"password" yaml:"password"`
+	Note     string `json:"note" yaml:"note"` // what the tester should see
 }
 
 type session struct {
@@ -52,7 +60,11 @@ type session struct {
 func (s *Signin) Login(w http.ResponseWriter, r *http.Request) {
 	state, verifier := rand.Text(), oauth2.GenerateVerifier()
 	setCookie(w, r, loginCookie, state+"."+verifier, 600)
-	http.Redirect(w, r, s.OAuth.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier)), http.StatusFound)
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
+	if u := r.URL.Query().Get("user"); u != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("login_hint", u)) // pre-fills the user name on Kiban's page
+	}
+	http.Redirect(w, r, s.OAuth.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
 func (s *Signin) Callback(w http.ResponseWriter, r *http.Request) {
@@ -106,8 +118,10 @@ func (s *Signin) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Signin) Me(w http.ResponseWriter, r *http.Request) {
 	var me struct {
-		Name *string `json:"name"` // null when signed out: not an error, so the browser logs none
+		Name *string   `json:"name"` // null when signed out: not an error, so the browser logs none
+		Demo []Account `json:"demo,omitempty"`
 	}
+	me.Demo = s.Demo
 	if _, sess := s.lookup(r); sess != nil {
 		me.Name = &sess.name
 	}

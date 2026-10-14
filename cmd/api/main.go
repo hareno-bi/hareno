@@ -38,6 +38,8 @@ type config struct {
 	Signin struct {
 		PublicURL string `yaml:"public_url"` // Hareno, e.g. http://localhost:55450
 		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
+		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
+		DemoAccounts []signin.Account `yaml:"demo_accounts"`
 	} `yaml:"signin"`
 	Connections map[string]struct {
 		Company string              `yaml:"company"`
@@ -125,6 +127,7 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		},
 		Logout: cfg.Signin.KibanURL + oidc + "/logout",
 		Home:   cfg.Signin.PublicURL + "/",
+		Demo:   cfg.Signin.DemoAccounts,
 	}
 	h := &sqlapi.Handler{
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},

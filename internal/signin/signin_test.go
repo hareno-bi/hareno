@@ -29,10 +29,10 @@ func TestFlow(t *testing.T) {
 		Endpoint: oauth2.Endpoint{AuthURL: "http://kiban/auth", TokenURL: idp.URL}}, Logout: "http://kiban/logout", Home: "http://hareno/"}
 
 	w := httptest.NewRecorder()
-	s.Login(w, httptest.NewRequest("GET", "/auth/login", nil))
+	s.Login(w, httptest.NewRequest("GET", "/auth/login?user=alice", nil))
 	loc, _ := url.Parse(w.Header().Get("Location"))
-	if loc.Query().Get("code_challenge_method") != "S256" {
-		t.Fatalf("no PKCE in %s", loc)
+	if loc.Query().Get("code_challenge_method") != "S256" || loc.Query().Get("login_hint") != "alice" {
+		t.Fatalf("no PKCE or login hint in %s", loc)
 	}
 	login := w.Result().Cookies()[0]
 
