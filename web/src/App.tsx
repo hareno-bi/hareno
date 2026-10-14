@@ -147,7 +147,8 @@ function SampleData() {
       <h3>Sample data</h3>
       <p className="muted">
         All {data.rows.length} order lines in the test data. alice sees the North rows, bob all of them, erin and carol none
-        (unless something is shared with erin).
+        (unless something is shared with erin). New orders arrive in the background (order ids from 1000000), so published
+        dashboards update by themselves.
       </p>
       <div className="scroll-x">
         <table className="sample">

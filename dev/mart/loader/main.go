@@ -5,6 +5,7 @@
 // dev/mart/check.sh fail while they exist).
 //
 //	go run ./dev/mart/loader -every 100ms
+//	go run ./dev/mart/loader -every 1m -orders 1 -keep 20   # the public demo: moving, but bounded
 //	go run ./dev/mart/loader -clean
 package main
 
@@ -27,6 +28,7 @@ func main() {
 	every := flag.Duration("every", 100*time.Millisecond, "load interval")
 	orders := flag.Int("orders", 5, "orders per load")
 	clean := flag.Bool("clean", false, "remove loaded orders, restore the seed watermark, and exit")
+	keep := flag.Int("keep", 0, "keep only the latest this many loaded orders (0: keep all)")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -56,7 +58,7 @@ func main() {
 		case <-t.C:
 		}
 		began := time.Now()
-		if err := load(ctx, conn, next, *orders); err != nil {
+		if err := load(ctx, conn, next, *orders, *keep); err != nil {
 			if ctx.Err() != nil {
 				continue // interrupted mid-load; the transaction rolled back
 			}
@@ -70,9 +72,9 @@ func main() {
 	}
 }
 
-// load inserts n orders of 1 to 3 lines for the seed's customers and products, and stamps the
-// watermark, in one transaction.
-func load(ctx context.Context, conn *pgx.Conn, id, n int) error {
+// load inserts n orders of 1 to 3 lines for the seed's customers and products, drops loaded
+// orders beyond the latest keep (if keep > 0), and stamps the watermark, in one transaction.
+func load(ctx context.Context, conn *pgx.Conn, id, n, keep int) error {
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return err
@@ -85,6 +87,10 @@ func load(ctx context.Context, conn *pgx.Conn, id, n int) error {
 			b.Queue(`INSERT INTO mart.fact_order_line SELECT $1, $2, product_id, $3, unit_cost * 2 + 1, NULL
 				FROM mart.dim_product WHERE product_id = $4`, id+i, line+1, 1+rand.IntN(10), 1+rand.IntN(4))
 		}
+	}
+	if keep > 0 {
+		b.Queue("DELETE FROM mart.fact_order_line WHERE order_id >= $1 AND order_id < $2", firstID, id+n-keep)
+		b.Queue("DELETE FROM mart.fact_order WHERE order_id >= $1 AND order_id < $2", firstID, id+n-keep)
 	}
 	b.Queue("UPDATE mart.etl_watermark SET loaded_at = clock_timestamp()")
 	if err := tx.SendBatch(ctx, b).Close(); err != nil {
