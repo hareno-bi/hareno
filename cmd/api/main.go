@@ -153,6 +153,7 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		DB:          appDB,
 		Grants:      k,
 		People:      authz.Directory{Gateway: cfg.Kiban.Gateway},
+		Members:     k,
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
 		Connections: map[string]sqlapi.Connection{},
 		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
