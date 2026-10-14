@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { Style, Tokens } from '../s3/theme'
 import { blank, fit, isNum, kinds, type Dash, type Kind, type Result, type Show, type Spec, type TileDef } from './chart'
+import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
 
@@ -209,6 +210,14 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           </select>
         </label>
         <button onClick={() => tiles.forEach(run)} disabled={!connection}>Run all</button>
+        <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= 24} onChange={(e) => {
+          const t = editing(examples[Number(e.target.value)])
+          setTiles((ts) => [...ts, t])
+          run(t)
+        }}>
+          <option value="">Add an example tile…</option>
+          {examples.map((x, i) => <option key={i} value={i}>{x.title}</option>)}
+        </select>
         <span className="muted">Ctrl+Enter in a query runs that tile</span>
       </div>
       {error && <div className="card sql-error" role="alert">{error}</div>}
