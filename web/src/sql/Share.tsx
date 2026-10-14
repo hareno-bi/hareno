@@ -79,9 +79,6 @@ export default function Share({ id }: { id: string }) {
           <h3 id={`share-${id}`}>Share dashboard</h3>
           <button className="close" onClick={() => dialog.current?.close()} aria-label="Close">×</button>
         </header>
-        <p className="muted">
-          People in this dashboard's company. Unless you choose otherwise, each sees only the data their own access allows. Sharing with positions and groups comes with Kiban 0.2.
-        </p>
         <div className="share-add">
           <input type="search" placeholder="Find a person by name or email" aria-label="Find a person" value={q} onChange={(e) => setQ(e.target.value)} />
           <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)} aria-label="Access to give">
@@ -123,7 +120,6 @@ export default function Share({ id }: { id: string }) {
               ))}
             </ul>
           )}
-        <p className="muted">Changes take effect within 30 seconds.</p>
       </dialog>
     </>
   )
