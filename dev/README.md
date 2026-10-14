@@ -48,6 +48,8 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may query.
 
+The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). Neither belongs in a production configuration.
+
 Saved reports are dashboards: a title and tiles, each its own SQL query shown as a chart or a table. They are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
 - **Changing a report's SQL** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` on its connection.
 - **Viewing the published revision** needs only `viewer` (or `editor`), and runs under the viewer's own row scope.

@@ -43,6 +43,36 @@ type Handler struct {
 	Grants      Granter
 	People      People
 	Members     Members
+	Demo        Demo // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
+}
+
+// Demo is a fixed query whose result anyone may read, signed in or not: dev and demo stacks only.
+type Demo struct {
+	Connection string `yaml:"connection"`
+	SQL        string `yaml:"sql"`
+}
+
+// DemoData serves GET /api/demo-data: the Demo query run with every row (each scope attribute "*").
+func (h *Handler) DemoData(w http.ResponseWriter, r *http.Request) {
+	conn, ok := h.Connections[h.Demo.Connection]
+	if !ok {
+		fail(w, http.StatusNotFound, "no such connection")
+		return
+	}
+	all := sqlexec.Scope{}
+	for attr := range conn.Scope {
+		all[attr] = []string{"*"}
+	}
+	res, err := conn.Exec.Run(r.Context(), all, h.Demo.SQL)
+	if err != nil {
+		h.Log.Error("demo data failed", "error", err.Error())
+		fail(w, http.StatusBadGateway, "query failed")
+		return
+	}
+	if res.Rows == nil {
+		res.Rows = [][]any{}
+	}
+	reply(w, response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
 }
 
 type request struct {

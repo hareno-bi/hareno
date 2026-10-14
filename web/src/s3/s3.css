@@ -103,7 +103,6 @@ button:disabled { opacity: 0.6; cursor: default; }
 .accounts th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; }
 .accounts th, .accounts td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
 .accounts a.button { border: 1px solid var(--grid); color: var(--text); white-space: nowrap; padding: 4px 10px; }
-.signin:has(.accounts) { max-width: 860px; }
 button.copy { font-size: 11px; padding: 1px 6px; }
 .report-bar { flex-wrap: wrap; }
 .report-bar input.title { font: 600 16px var(--font-display); color: var(--text); background: var(--surface); border: 1px solid var(--grid);
@@ -143,3 +142,11 @@ dialog.share h3 { margin-top: 14px; }
 .add-tile { grid-column: 1 / -1; border-style: dashed; padding: 14px; color: var(--muted); }
 .note.warn { color: var(--down); margin: 8px 0 0; }
 @media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .tile header { flex-wrap: wrap; } }
+.signin:has(.accounts) { max-width: 1300px; }
+.scroll-x { overflow-x: auto; }
+.accounts .yes { color: var(--up); font-weight: 600; }
+.accounts h3 { margin-top: 24px; }
+.accounts table.sample .num { text-align: right; font-variant-numeric: tabular-nums; }
+.accounts table.sample tr.group td { border-top: 2px solid var(--muted); }
+.accounts table.sample td:first-child { font-weight: 600; }
+.accounts td code { white-space: nowrap; }
