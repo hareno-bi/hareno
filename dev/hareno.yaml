@@ -10,6 +10,10 @@ kiban:
 signin:                            # as the browser reaches them, through the demo proxy (dev/demo)
   public_url: http://${HARENO_PUBLIC_HOST}:55450
   kiban_url: http://${HARENO_PUBLIC_HOST}:55451
+  demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
+    - {user: alice, password: hareno-dev-password, note: "North manager: sees North rows only"}
+    - {user: bob, password: hareno-dev-password, note: "Finance group: sees all regions"}
+    - {user: carol, password: hareno-dev-password, note: "Another company (BETA): sees no data source"}
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

@@ -98,3 +98,11 @@ button:disabled { opacity: 0.6; cursor: default; }
 .sql-table { height: 380px; min-height: 0; }
 .sql-table .m-row { min-width: 0; }
 .m-row.abs { position: absolute; top: 0; left: 0; right: 0; }
+.accounts { margin-top: 24px; text-align: left; }
+.accounts table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.accounts th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; }
+.accounts th, .accounts td { padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+.accounts a.button { border: 1px solid var(--grid); color: var(--text); white-space: nowrap; padding: 4px 10px; }
+.signin:has(.accounts) { max-width: 860px; }
+.test-accounts { max-width: none; font-size: 13px; }
+button.copy { font-size: 11px; padding: 1px 6px; }
