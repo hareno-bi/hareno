@@ -34,6 +34,20 @@ Positions sit at the company root: Kiban 0.1.2 cannot place them on org units (A
 
 Browser login: `http://localhost:55440`.
 
+Hareno's own grants are re-applied on every `seed.sh` run (grants are idempotent):
+- The app's object types are `report`, `connection` (`sql_user` may use the SQL editor) and `data_scope` (`viewer` holds a row scope such as `mart.region.North`, or `mart.region.*` for all).
+- On ALPHA's `mart` connection, the North manager (alice) may use SQL with North only, and the Finance group (bob, dave) with all regions. BETA (carol) has no access.
+
+## Hareno API
+
+```sh
+go run ./cmd/api -addr 127.0.0.1:55453 -config dev/hareno.yaml
+curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
+  -d '{"connection": "mart", "sql": "SELECT region_name FROM mart.dim_region"}'
+```
+
+The endpoint needs the dev mart and dev Kiban. `$TOKEN` is a Kiban user's access token; `seed.sh`'s `login` function shows how to get one. Every statement is written to the audit log on stdout.
+
 Reset: `docker compose -p hareno-kiban -f dev/kiban/docker-compose.yml down -v`, then `dev/kiban/up.sh`.
 
 `docker-compose.yml` and `.env.example` are copied unmodified from Kiban v0.1.2 `deploy/quickstart/` (Apache-2.0; see `LICENSE-kiban` and `NOTICE-kiban`). To upgrade, copy them from the new tag; a new `.env.example` key needs `dev/kiban/.env` regenerated.

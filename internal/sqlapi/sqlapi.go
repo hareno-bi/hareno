@@ -1,0 +1,145 @@
+// Package sqlapi serves the SQL editor's query endpoint (Phase 2 round 1, R1-2):
+//
+//	POST /api/sql  {"connection": "mart", "sql": "SELECT ..."}   Authorization: Bearer <user token>
+//
+// Per request: verify the user, resolve the connection's company for them, require the
+// connection's sql_user relation in Kiban, derive the user's row scope from data_scope objects in
+// Kiban, run the statement under that scope (internal/sqlexec), and audit it.
+package sqlapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/sqlexec"
+)
+
+// Connection is a source the SQL editor may query. Its data access mode is database-enforced
+// (ARCHITECTURE-PLAN §5.3): rows are filtered by the database's policies under the scope set here.
+type Connection struct {
+	Company string              // Kiban company code that owns the connection, e.g. ALPHA
+	Exec    sqlexec.Exec        // runs as the connection's gate login
+	Scope   map[string][]string // scope attributes and their possible values, e.g. region: [North, South, West]
+}
+
+// Handler serves POST /api/sql.
+type Handler struct {
+	Authz       *authz.Authz
+	Connections map[string]Connection
+	Log         *slog.Logger // audit log
+}
+
+type request struct {
+	Connection string `json:"connection"`
+	SQL        string `json:"sql"`
+}
+
+type response struct {
+	Columns   []string `json:"columns"`
+	Rows      [][]any  `json:"rows"`
+	Truncated bool     `json:"truncated"`
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	start := time.Now()
+	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sub, err := h.Authz.User(ctx, bearer)
+	if err != nil {
+		fail(w, http.StatusUnauthorized, "sign in required")
+		return
+	}
+	var req request
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.SQL == "" {
+		fail(w, http.StatusBadRequest, "expected {\"connection\": ..., \"sql\": ...}")
+		return
+	}
+	conn, ok := h.Connections[req.Connection]
+	if !ok {
+		fail(w, http.StatusNotFound, "no such connection")
+		return
+	}
+	company, err := h.Authz.Company(ctx, bearer, sub, conn.Company)
+	if errors.Is(err, authz.ErrNoCompany) {
+		fail(w, http.StatusNotFound, "no such connection") // do not reveal other companies' connections
+		return
+	} else if err != nil {
+		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
+		return
+	}
+
+	scope, allowed, err := h.access(ctx, bearer, sub, company, req.Connection, conn)
+	if err != nil {
+		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
+		return
+	}
+	audit := h.Log.With("user", sub, "company", conn.Company, "connection", req.Connection, "sql", req.SQL, "scope", scope)
+	if !allowed {
+		audit.Info("sql refused", "reason", "no sql_user")
+		fail(w, http.StatusForbidden, "you may not query this connection with SQL")
+		return
+	}
+
+	res, err := conn.Exec.Run(ctx, scope, req.SQL)
+	if err != nil {
+		audit.Info("sql failed", "error", err.Error(), "ms", time.Since(start).Milliseconds())
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) || errors.Is(err, sqlexec.ErrNotQuery) {
+			fail(w, http.StatusBadRequest, err.Error()) // the user's own statement: show why
+			return
+		}
+		fail(w, http.StatusBadGateway, "query failed")
+		return
+	}
+	audit.Info("sql ran", "rows", len(res.Rows), "truncated", res.Truncated, "ms", time.Since(start).Milliseconds())
+	if res.Rows == nil {
+		res.Rows = [][]any{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
+}
+
+// access asks Kiban, in one batch, whether the user may use SQL on the connection and which
+// scope values they hold (data_scope "<connection>.<attribute>.<value>", or ".*" for all).
+func (h *Handler) access(ctx context.Context, bearer, sub, company, name string, c Connection) (sqlexec.Scope, bool, error) {
+	use := authz.Item{Type: "connection", ID: name, Relation: "sql_user"}
+	items := []authz.Item{use}
+	for attr, vals := range c.Scope {
+		for _, v := range append(slices.Clone(vals), "*") {
+			items = append(items, authz.Item{Type: "data_scope", ID: name + "." + attr + "." + v, Relation: "viewer"})
+		}
+	}
+	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, items)
+	if err != nil {
+		return nil, false, err
+	}
+	scope := sqlexec.Scope{}
+	for attr, vals := range c.Scope {
+		if ok[authz.Item{Type: "data_scope", ID: name + "." + attr + ".*", Relation: "viewer"}] {
+			scope[attr] = []string{"*"}
+			continue
+		}
+		scope[attr] = []string{}
+		for _, v := range vals {
+			if ok[authz.Item{Type: "data_scope", ID: name + "." + attr + "." + v, Relation: "viewer"}] {
+				scope[attr] = append(scope[attr], v)
+			}
+		}
+	}
+	return scope, ok[use], nil
+}
+
+func fail(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
