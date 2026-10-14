@@ -105,7 +105,7 @@ function SignIn({ demo }: { demo: Account[] }) {
             <table>
               <thead>
                 <tr>
-                  <th>User</th><th>Password</th><th>Company</th><th>Access comes from</th>
+                  <th>User</th><th>Password</th><th>Company</th><th>Access</th>
                   <th>Builds dashboards</th><th>Rows they see</th><th>May share their data</th><th>Remarks</th><th />
                 </tr>
               </thead>
