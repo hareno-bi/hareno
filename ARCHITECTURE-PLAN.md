@@ -472,7 +472,7 @@ Development data mart: a Docker Compose PostgreSQL instance with a deterministic
 ### Platform dependencies
 
 - Kiban launch gates, release availability and Kubernetes ownership.
-- Whether consolidated cross-company reporting is required, and its design if so (§10.4 item 8).
+- Whether consolidated cross-company reporting is required, and its design if so (§10.4 item 8). Deferred by the owner on 2026-10-14: not in scope until raised again.
 - Identity provider, session/revocation expectations and provisioning process.
 - Artifact storage implementation and secrets provider.
 - Databricks adoption timing, network route and authentication.

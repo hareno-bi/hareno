@@ -2,7 +2,7 @@
 
 Drafted: 2026-10-12. Companion to [ARCHITECTURE-PLAN.md](ARCHITECTURE-PLAN.md); section references (§) point there.
 
-Status: **Phase 1 gate passed 2026-10-13** ([PHASE1-GATE.md](PHASE1-GATE.md)): Malloy confirmed (PostgreSQL only, four conditions), Kiban kept (§10.4 conditions 1–15), refresh design adopted, matrix approach accepted; the S3 chart sign-off is an open client input. **Phase 2 in progress.** Spike findings: `spikes/s1`–`s4/FINDINGS.md`.
+Status: **Phase 1 gate passed 2026-10-13** ([PHASE1-GATE.md](PHASE1-GATE.md)): Malloy confirmed (PostgreSQL only, four conditions), Kiban kept (§10.4 conditions 1–15), refresh design adopted, matrix approach accepted; S3 chart look signed off by the owner 2026-10-14. **Phase 2 in progress.** Spike findings: `spikes/s1`–`s4/FINDINGS.md`.
 
 Durations are indicative only, assuming a team of about four (two Go backend, one to two frontend, part-time platform). They are recalibrated at the end of Phase 1 and are not commitments.
 
@@ -116,8 +116,8 @@ Databricks connector, broader calculations and chart coverage, scale work, Snowf
 | Input | Needed by |
 |---|---|
 | Query authoring options, including a SQL editor for trusted users (ARCHITECTURE-PLAN §5.3); option C moves row policy into the database | Before P2-06 |
-| Whether consolidated cross-company reporting is required | Start of Phase 3 |
-| Visual direction / sample chart sign-off | End of Phase 1 |
+| Whether consolidated cross-company reporting is required | Deferred by the owner (2026-10-14): not in scope until raised again |
+| Visual direction / sample chart sign-off | Done: chart look signed off 2026-10-14 |
 | Capability matrix and launch depth sign-off | Start of Phase 3 |
 | Initial chart catalog | Start of Phase 3 |
 | Export formats and paginated-report requirements | Start of Phase 3 |

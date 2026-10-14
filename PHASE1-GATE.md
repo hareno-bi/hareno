@@ -58,7 +58,7 @@ Re-estimate again at the end of Phase 2's first milestone, using the team's meas
 ## Open items
 
 **Client** (each item: what is needed, and by when):
-- **Chart sign-off** on the S3 sample set (http://139.99.122.192:55450), plus brand colours and fonts if they want their own style. Needed before Phase 3.
+- **Chart sign-off** on the S3 sample set (http://139.99.122.192:55450), plus brand colours and fonts if they want their own style. Needed before Phase 3. **Chart look signed off by the owner on 2026-10-14**; brand colours and fonts remain open.
 - **Revocation:** accept that removing someone's access takes effect within 30 seconds. Needed for Phase 2 design.
 - **Freshness:** accept that data reaches the screen about 6–9 s after the mart loads it, at a 5 s minimum interval. Needed for Phase 2 design.
 - **Load watermark:** the mart records when each load finished, in the same transaction as the data. Needed in Phase 2 for change detection; without it, Hareno uses timer-based refresh.
