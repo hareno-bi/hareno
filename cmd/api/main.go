@@ -80,6 +80,10 @@ func main() {
 		mux.Handle("DELETE /api/reports/{id}", si.Wrap(http.HandlerFunc(h.DeleteReport)))
 		mux.Handle("POST /api/reports/{id}/publish", si.Wrap(http.HandlerFunc(h.PublishReport)))
 		mux.Handle("POST /api/reports/{id}/run", si.Wrap(http.HandlerFunc(h.RunReport)))
+		mux.Handle("GET /api/reports/{id}/people", si.Wrap(http.HandlerFunc(h.SearchPeople)))
+		mux.Handle("GET /api/reports/{id}/shares", si.Wrap(http.HandlerFunc(h.ListShares)))
+		mux.Handle("POST /api/reports/{id}/shares", si.Wrap(http.HandlerFunc(h.Share)))
+		mux.Handle("DELETE /api/reports/{id}/shares/{member}", si.Wrap(http.HandlerFunc(h.Unshare)))
 		mux.HandleFunc("GET /api/me", si.Me)
 		mux.HandleFunc("GET /auth/login", si.Login)
 		mux.HandleFunc("GET /auth/callback", si.Callback)
@@ -148,6 +152,7 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 	h := &sqlapi.Handler{
 		DB:          appDB,
 		Grants:      k,
+		People:      authz.Directory{Gateway: cfg.Kiban.Gateway},
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
 		Connections: map[string]sqlapi.Connection{},
 		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),

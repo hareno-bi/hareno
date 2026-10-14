@@ -417,13 +417,27 @@ func (h *Handler) DeleteReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	tuples := []sdk.Tuple{{ObjectType: "report", ObjectID: rep.ID, Relation: "editor", SubjectType: "user", SubjectID: rep.CreatedBy}}
+	var member, relation string
+	rows, _ := h.DB.Query(ctx, `SELECT member, relation FROM report_share WHERE report_id = $1`, rep.ID)
+	if _, err := pgx.ForEachRow(rows, []any{&member, &relation}, func() error {
+		tuples = append(tuples, shareTuple(rep.ID, member, relation))
+		return nil
+	}); err != nil {
+		fail(w, http.StatusInternalServerError, "could not delete the report")
+		return
+	}
 	if _, err := h.DB.Exec(ctx, `DELETE FROM report WHERE id = $1`, rep.ID); err != nil {
 		fail(w, http.StatusInternalServerError, "could not delete the report")
 		return
 	}
 	// The report is gone whatever Kiban says; a tuple left behind names an object that no longer exists.
-	if err := h.Grants.Revoke(ctx, rt.company, sdk.Tuple{ObjectType: "report", ObjectID: rep.ID, Relation: "editor", SubjectType: "user", SubjectID: rep.CreatedBy},
-		sdk.AnchorTuple("hareno", "report", rep.ID, rt.company)); err != nil {
+	// Relations first, the anchor last: an anchor revoked first strands the rest (§10.4 item 15).
+	err := h.Grants.Revoke(ctx, rt.company, tuples...)
+	if err == nil {
+		err = h.Grants.Revoke(ctx, rt.company, sdk.AnchorTuple("hareno", "report", rep.ID, rt.company))
+	}
+	if err != nil {
 		h.Log.Warn("report grants not revoked", "report", rep.ID, "error", err.Error())
 	}
 	h.Log.Info("report deleted", "user", sub, "report", rep.ID)
