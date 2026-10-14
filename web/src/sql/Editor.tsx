@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { Chart } from '../s3/Chart'
 import type { Style, Tokens } from '../s3/theme'
 import { chartOption, fit, isNum, kinds, type Kind, type Result, type Spec } from './chart'
+import Share from './Share'
 import Table from './Table'
 
 // The SQL editor (Phase 2 round 1, R1-3/R1-4): write a query against a connection, see the rows,
@@ -193,6 +194,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           {!loaded ? 'Loading…' : dirty ? (id ? 'Unsaved changes' : 'Not saved') : 'Saved'}
           {published !== null && <> · <a href={`#/report/${id}`}>published revision {published}</a></>}
         </span>
+        {id && <Share id={id} />}
         <a className="new" href="#/sql">New query</a>
       </div>
       <div className="toolbar">

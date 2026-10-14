@@ -41,6 +41,7 @@ type Handler struct {
 	Log         *slog.Logger  // audit log
 	DB          *pgxpool.Pool // application database: saved reports
 	Grants      Granter
+	People      People
 }
 
 type request struct {

@@ -116,3 +116,13 @@ button.copy { font-size: 11px; padding: 1px 6px; }
 .reports .actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
 .report .toolbar h2 { margin: 0 8px 0 0; }
 .report .toolbar { flex-wrap: wrap; margin-bottom: 4px; }
+dialog.share { width: min(560px, calc(100vw - 32px)); color: var(--text); padding: 18px; }
+dialog.share::backdrop { background: rgb(0 0 0 / 0.35); }
+dialog.share header { display: flex; align-items: center; }
+dialog.share .close { margin-left: auto; border: 0; font-size: 20px; line-height: 1; padding: 0 6px; }
+dialog.share h3 { margin-top: 14px; }
+.share-add { display: flex; gap: 8px; }
+.share-add input { flex: 1; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--grid); border-radius: var(--radius); padding: 5px 8px; }
+.share-found, .share-list { list-style: none; padding: 0; margin: 8px 0; }
+.share-found li, .share-list li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+.share-found li > span:first-child, .share-list li > span:first-child { flex: 1; }

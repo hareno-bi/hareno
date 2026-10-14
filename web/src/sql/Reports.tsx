@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Chart } from '../s3/Chart'
 import type { Style, Tokens } from '../s3/theme'
 import { chartOption, fit, kinds, type Result, type Spec } from './chart'
+import Share from './Share'
 import Table from './Table'
 
 // Saved reports (Phase 2 round 1, R1-4): the list, and a published report as its viewers see it.
@@ -105,6 +106,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           {ranAt && ` · data as of ${ranAt.toLocaleTimeString()}`}
         </span>
         <button onClick={run}>Refresh</button>
+        {report.canEdit && <Share id={id} />}
         {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
       </div>
       {result && (

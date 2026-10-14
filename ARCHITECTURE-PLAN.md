@@ -351,6 +351,11 @@ The following reflects the team's supplied response, not independently verified 
    - Positions have one holder and no atomic handover: end then assign leaves the position empty in between. Hareno ends, then assigns, and retries the assign on failure.
    - Upstream: Kiban #75 (the 409 names the current holder, 0.1.3) and #77 (atomic handover with an `expectedAssignmentId` guard, 0.2).
 
+16. **Share targets (asked 2026-10-14, v0.1.2):**
+   - **People:** share with `member:<memberId>#mapped_user`, using member ids from the member directory, never a login subject. The tuple follows the member's linked login and ends with the membership. Kiban confirmed the pattern; documenting it is a docs fix on their side.
+   - **Positions and groups:** members cannot list them; only company administrators can. Kiban plans member-level list routes for 0.2.
+   - **Until then:** Hareno shares with people only (R1-4b). Making Hareno's service account a company administrator was rejected as far broader than needed.
+
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 
 ## 11. Reporting and artifacts
