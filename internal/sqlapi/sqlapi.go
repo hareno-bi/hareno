@@ -35,6 +35,9 @@ type Connection struct {
 	// Watermark is a query returning the source's last load time, or "" if it has none (cache.go).
 	Watermark string
 	Refresh   time.Duration // minimum refresh interval: how often the watermark is read, or how long a result lasts without one
+	// Downloads (export.go) run with their own limits instead of Exec's.
+	ExportRows    int
+	ExportTimeout time.Duration
 }
 
 // Handler serves POST /api/sql.
@@ -186,16 +189,26 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // scope values they hold (data_scope "<connection>.<attribute>.<value>", or ".*" for all).
 func (h *Handler) access(ctx context.Context, bearer, sub, company, name string, c Connection) (sqlexec.Scope, bool, error) {
 	use := authz.Item{Type: "connection", ID: name, Relation: "sql_user"}
-	items := []authz.Item{use}
+	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, append(scopeItems(name, c), use))
+	if err != nil {
+		return nil, false, err
+	}
+	return scopeOf(ok, name, c), ok[use], nil
+}
+
+// scopeItems are the questions that decide a user's row scope on connection name.
+func scopeItems(name string, c Connection) []authz.Item {
+	var items []authz.Item
 	for attr, vals := range c.Scope {
 		for _, v := range append(slices.Clone(vals), "*") {
 			items = append(items, authz.Item{Type: "data_scope", ID: name + "." + attr + "." + v, Relation: "viewer"})
 		}
 	}
-	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, items)
-	if err != nil {
-		return nil, false, err
-	}
+	return items
+}
+
+// scopeOf is the row scope Kiban's answers to scopeItems give.
+func scopeOf(ok map[authz.Item]bool, name string, c Connection) sqlexec.Scope {
 	scope := sqlexec.Scope{}
 	for attr, vals := range c.Scope {
 		if ok[authz.Item{Type: "data_scope", ID: name + "." + attr + ".*", Relation: "viewer"}] {
@@ -209,7 +222,7 @@ func (h *Handler) access(ctx context.Context, bearer, sub, company, name string,
 			}
 		}
 	}
-	return scope, ok[use], nil
+	return scope
 }
 
 func bearerOf(r *http.Request) string {

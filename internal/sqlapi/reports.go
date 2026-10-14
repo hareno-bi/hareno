@@ -108,6 +108,7 @@ type rights struct {
 	company    string // Kiban company id
 	view, edit bool
 	sql        bool // sql_user on the report's connection: needed to change its SQL
+	export     bool // exporter on the report's connection: may download its rows (export.go)
 }
 
 func (h *Handler) rights(ctx context.Context, bearer, sub string, rep reportRow) (rights, error) {
@@ -120,11 +121,16 @@ func (h *Handler) rights(ctx context.Context, bearer, sub string, rep reportRow)
 	view := authz.Item{Type: "report", ID: rep.ID, Relation: "viewer"}
 	edit := authz.Item{Type: "report", ID: rep.ID, Relation: "editor"}
 	sql := authz.Item{Type: "connection", ID: rep.Connection, Relation: "sql_user"}
-	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{view, edit, sql})
+	export := authz.Item{Type: "connection", ID: rep.Connection, Relation: "exporter"}
+	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{view, edit, sql, export})
 	if err != nil {
 		return rights{}, err
 	}
-	return rights{company: company, view: ok[view] || ok[edit], edit: ok[edit], sql: ok[sql]}, nil
+	return rights{company: company, view: ok[view] || ok[edit], edit: ok[edit], sql: ok[sql], export: ok[export]}, nil
+}
+
+func (h *Handler) find(ctx context.Context, id string) (reportRow, error) {
+	return scanReport(h.DB.QueryRow(ctx, `SELECT `+reportCols+` FROM report r JOIN connection c ON c.id = r.connection_id WHERE r.id::text = $1`, id))
 }
 
 // load reads a report and the user's rights on it. A report the user may not see is "not found":
@@ -135,7 +141,7 @@ func (h *Handler) load(w http.ResponseWriter, r *http.Request) (rep reportRow, r
 		return
 	}
 	ok = false
-	rep, err := scanReport(h.DB.QueryRow(r.Context(), `SELECT `+reportCols+` FROM report r JOIN connection c ON c.id = r.connection_id WHERE r.id::text = $1`, r.PathValue("id")))
+	rep, err := h.find(r.Context(), r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		fail(w, http.StatusNotFound, "no such report")
 		return
@@ -282,7 +288,7 @@ func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out := map[string]any{"id": rep.ID, "connection": rep.Connection, "canEdit": rt.edit, "canEditSQL": rt.edit && rt.sql}
+	out := map[string]any{"id": rep.ID, "connection": rep.Connection, "canEdit": rt.edit, "canEditSQL": rt.edit && rt.sql, "canExport": rt.export}
 	if rt.edit {
 		out["draft"], out["version"] = rep.Draft, rep.Version
 		canShare, err := h.refresh(r.Context(), bearer, sub, rep, rt)

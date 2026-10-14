@@ -364,6 +364,13 @@ The following reflects the team's supplied response, not independently verified 
    - **"Show my data":** the sharer may choose instead that viewers see the sharer's rows. Because this hands out data, only holders of `connection#data_sharer` may choose it, set per data source in Kiban by the company's administrators (dev: the North manager position). It is for viewers only; editors always work with their own rows.
    - **Several data sources:** the strictest rule applies. A report or query spanning several sources needs `data_sharer` on every one, or each viewer sees their own rows.
    - **Kiban gap:** Kiban answers only for the caller's own token (or the service account), so Hareno cannot ask at view time what the sharer may see. Hareno keeps the sharer's row scope with the share and refreshes it whenever the sharer opens the report. If they lost `data_sharer`, the share falls back to each viewer's own rows. The share stops showing data as soon as the sharer leaves the company (checked through the member directory on every view). Remaining gap: a sharer whose row scope shrinks keeps sharing the old scope until they next open the report. To ask Kiban: a service-side check on behalf of a named subject.
+18. **CSV export (P2-10, owner decisions 2026-10-14):**
+   - **Who:** downloading needs `connection#exporter`, set per data source in Kiban by the company's administrators (dev: the North manager position, and erin). Viewing a dashboard does not imply it. A report or query spanning several sources needs it on every one: the strictest rule applies, as in item 17.
+   - **Whose rows:** always the downloader's own scope. A share showing the sharer's data (item 17) is for viewing only; a viewer with `exporter` downloads their own rows from it, never the sharer's.
+   - **Freshness:** every answer for a download comes from Kiban, not the decision cache (item 13), and the query runs fresh, never from the results cache: a revoked permission stops the very next download.
+   - **Size:** rows stream to the file as they arrive, up to 1,000,000 per file by default (`export_rows`, per connection), with a 5-minute query limit (`export_timeout`). A file cut short ends with a line saying so; a query failing mid-file breaks off the download, so a partial file is not taken for complete.
+   - **Spreadsheet safety:** text starting with `=`, `+`, `-`, `@`, tab or carriage return gets a leading apostrophe, so a spreadsheet does not run it as a formula. Numbers and dates are written as they are.
+   - **Audit:** every download, refusal and failure is logged with user, report, revision, tile, row scope and row count.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 
@@ -375,7 +382,7 @@ Reporting was agreed in principle. Exact formats and layout requirements remain 
 - Use the shared semantic/policy pipeline.
 - Store report/model revisions, parameters, execution subject, timestamps and available source watermark with artifacts.
 - Use controlled browser rendering for dashboard PDFs; paginated reports require explicit page-layout rules.
-- Define summarized versus detailed export rights and allowed formats, including CSV and whether XLSX is required.
+- Define summarized versus detailed export rights and allowed formats, including CSV and whether XLSX is required. CSV of a tile's rows is decided (§10.4 item 18); summarized versus detailed rights and XLSX remain open.
 - Authorize recipients and artifact downloads; use retention, deletion and access expiry rules.
 - Avoid promising exactly-once external delivery without an explicit deduplication/retry design.
 - Pinned definitions support explaining how a report was produced, but cannot recreate historical source data without snapshots/retention.

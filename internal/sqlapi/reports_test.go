@@ -113,8 +113,9 @@ func TestReports(t *testing.T) {
 			Now: func() time.Time { return now }},
 		Connections: map[string]Connection{"mart": {
 			Company: "ALPHA", ID: connID,
-			Exec:  sqlexec.Exec{DB: mart, Role: "hareno_sql", Timeout: 5 * time.Second, MaxRows: 1000},
-			Scope: map[string][]string{"region": {"North", "South", "West"}},
+			Exec:       sqlexec.Exec{DB: mart, Role: "hareno_sql", Timeout: 5 * time.Second, MaxRows: 1000},
+			Scope:      map[string][]string{"region": {"North", "South", "West"}},
+			ExportRows: 2, ExportTimeout: 5 * time.Second,
 		}},
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:      appDB,
@@ -140,6 +141,7 @@ func TestReports(t *testing.T) {
 	mux.HandleFunc("DELETE /api/reports/{id}", h.DeleteReport)
 	mux.HandleFunc("POST /api/reports/{id}/publish", h.PublishReport)
 	mux.HandleFunc("POST /api/reports/{id}/run", h.RunReport)
+	mux.HandleFunc("GET /api/reports/{id}/tiles/{n}/csv", h.ExportTile)
 	mux.HandleFunc("GET /api/reports/{id}/people", h.SearchPeople)
 	mux.HandleFunc("GET /api/reports/{id}/shares", h.ListShares)
 	mux.HandleFunc("POST /api/reports/{id}/shares", h.Share)
@@ -294,6 +296,46 @@ func TestReports(t *testing.T) {
 	if rows(b) != `[["North"]]` || b["data"] != "sharer" {
 		t.Errorf("erin with alice's data sees %v", b)
 	}
+	// Downloads need exporter, asked fresh each time, and hold the downloader's own rows only.
+	download := func(user string, tile int) (int, string, http.Header) {
+		t.Helper()
+		r := httptest.NewRequest("GET", fmt.Sprintf("%s/tiles/%d/csv", path, tile), nil)
+		r.Header.Set("Authorization", "Bearer "+user)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w.Code, w.Body.String(), w.Header()
+	}
+	const bom = "\uFEFF"
+	st, csv, _ := download("alice", 0)
+	expect("download without exporter", st, 403, nil)
+	f.Grant("c-alpha", "connection", "mart", "exporter", "alice")
+	f.Grant("c-alpha", "connection", "mart", "exporter", "bob")
+	f.Grant("c-alpha", "connection", "mart", "exporter", "erin")
+	st, csv, hdr := download("alice", 0) // no tick: the denial above is not cached for a download
+	if st != 200 || csv != bom+"region_name\nNorth\n" || hdr.Get("Content-Disposition") != `attachment; filename="Regions - tile 1.csv"` {
+		t.Errorf("alice downloads %d %q %v", st, csv, hdr)
+	}
+	if st, csv, _ = download("alice", 1); csv != bom+"n\n1\n" {
+		t.Errorf("alice downloads tile 2: %d %q", st, csv)
+	}
+	if st, csv, _ = download("erin", 0); csv != bom+"region_name\n" {
+		t.Errorf("erin downloads %d %q: her own rows, not alice's", st, csv)
+	}
+	if st, csv, _ = download("bob", 0); csv != bom+"region_name\nNorth\nSouth\n… more rows not included: a download stops at 2 rows\n" {
+		t.Errorf("bob downloads past the limit: %d %q", st, csv)
+	}
+	st, _, _ = download("alice", 2)
+	expect("download a tile that is not there", st, 404, nil)
+	st, _, _ = download("carol", 0)
+	expect("download from another company", st, 404, nil)
+	tick()
+	if st, b = call("alice", "GET", path, nil); b["canExport"] != true {
+		t.Errorf("alice's report: %v", b)
+	}
+	f.Revoke("c-alpha", "connection", "mart", "exporter", "bob")
+	st, _, _ = download("bob", 0) // no tick: a revoked exporter stops the next download
+	expect("download after exporter is revoked", st, 403, nil)
+
 	// alice's scope grows: erin sees it once alice opens the report again.
 	f.Grant("c-alpha", "data_scope", "mart.region.South", "viewer", "alice")
 	tick()

@@ -113,12 +113,22 @@ func (a *Authz) Company(ctx context.Context, bearer, sub, code string) (string, 
 // Allowed answers each item for the user in company: cached answers first, the rest in batches
 // of up to 100. Any error denies everything asked.
 func (a *Authz) Allowed(ctx context.Context, bearer, sub, company string, items []Item) (map[Item]bool, error) {
+	return a.allowed(ctx, bearer, sub, company, items, false)
+}
+
+// Fresh is Allowed asking Kiban every item, for exports and other paths that must not run on a
+// decision up to 30 s old (§10.4 item 13). Its answers still refresh the cache.
+func (a *Authz) Fresh(ctx context.Context, bearer, sub, company string, items []Item) (map[Item]bool, error) {
+	return a.allowed(ctx, bearer, sub, company, items, true)
+}
+
+func (a *Authz) allowed(ctx context.Context, bearer, sub, company string, items []Item, fresh bool) (map[Item]bool, error) {
 	out := make(map[Item]bool, len(items))
 	var missing []Item
 	now := a.now()
 	a.mu.Lock()
 	for _, it := range items {
-		if c, ok := a.decisions[decisionKey{company, sub, it}]; ok && now.Before(c.until) {
+		if c, ok := a.decisions[decisionKey{company, sub, it}]; ok && !fresh && now.Before(c.until) {
 			out[it] = c.allowed
 		} else {
 			missing = append(missing, it)

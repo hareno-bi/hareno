@@ -58,6 +58,9 @@ type config struct {
 		// when it moves instead of on a timer (ARCHITECTURE-PLAN §8.2).
 		Watermark string        `yaml:"watermark"`
 		Refresh   time.Duration `yaml:"refresh"` // minimum refresh interval, default 5s
+		// CSV downloads: rows per file, default 1,000,000; time per query, default 5m.
+		ExportRows    int           `yaml:"export_rows"`
+		ExportTimeout time.Duration `yaml:"export_timeout"`
 	} `yaml:"connections"`
 }
 
@@ -87,6 +90,7 @@ func main() {
 		mux.Handle("DELETE /api/reports/{id}", si.Wrap(http.HandlerFunc(h.DeleteReport)))
 		mux.Handle("POST /api/reports/{id}/publish", si.Wrap(http.HandlerFunc(h.PublishReport)))
 		mux.Handle("POST /api/reports/{id}/run", si.Wrap(http.HandlerFunc(h.RunReport)))
+		mux.Handle("GET /api/reports/{id}/tiles/{n}/csv", si.Wrap(http.HandlerFunc(h.ExportTile)))
 		mux.Handle("GET /api/reports/{id}/people", si.Wrap(http.HandlerFunc(h.SearchPeople)))
 		mux.Handle("GET /api/reports/{id}/shares", si.Wrap(http.HandlerFunc(h.ListShares)))
 		mux.Handle("POST /api/reports/{id}/shares", si.Wrap(http.HandlerFunc(h.Share)))
@@ -188,6 +192,9 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 			Scope:     c.Scope,
 			Watermark: c.Watermark,
 			Refresh:   cmp.Or(c.Refresh, 5*time.Second),
+
+			ExportRows:    cmp.Or(c.ExportRows, 1_000_000),
+			ExportTimeout: cmp.Or(c.ExportTimeout, 5*time.Minute),
 		}
 	}
 	return h, si, nil

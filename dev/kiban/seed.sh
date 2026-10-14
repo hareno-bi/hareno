@@ -89,7 +89,8 @@ for u in alice bob carol dave erin; do ensure_user "$u" "$DEV_PW"; done
 
 # register_app TOKEN: register (or re-register) the hareno app and its object types.
 #   report: viewer/editor. connection: sql_user may use the SQL editor on it; data_sharer may
-#     share reports on it showing their own data to people who could not see it.
+#     share reports on it showing their own data to people who could not see it; exporter may
+#     download its reports' rows (their own) as CSV.
 #   data_scope: viewer holds that row scope, e.g. mart.region.North or mart.region.* (all).
 register_app() {
     api "$1" "$GW/api/platform/admin/apps" -d '{
@@ -97,7 +98,7 @@ register_app() {
         "features": ["hareno.use"],
         "authzFragment": {
             "report": {"company_module": {"this": true}, "viewer": {"this": true}, "editor": {"this": true}},
-            "connection": {"company_module": {"this": true}, "sql_user": {"this": true}, "data_sharer": {"this": true}},
+            "connection": {"company_module": {"this": true}, "sql_user": {"this": true}, "data_sharer": {"this": true}, "exporter": {"this": true}},
             "data_scope": {"company_module": {"this": true}, "viewer": {"this": true}}
         }
     }' >/dev/null
@@ -163,7 +164,8 @@ chmod 600 hareno-backend-secret
 
 # Hareno's dev grants, every run (grants are idempotent): the app's object types are current,
 # and ALPHA's mart connection is usable with SQL by the North manager (North only) and the
-# Finance group (all regions). The North manager may share her data. BETA has no access to the mart.
+# Finance group (all regions). The North manager may share her data. The North manager and erin
+# may download CSV (erin gets her own rows: none). BETA has no access to the mart.
 sa=$(login "$KIBAN_SUPERADMIN_USERNAME" "$SA_PW")
 register_app "$sa"
 svc=$(curl -sf "$GW/auth/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" -d grant_type=client_credentials \
@@ -171,13 +173,15 @@ svc=$(curl -sf "$GW/auth/realms/$KEYCLOAK_REALM/protocol/openid-connect/token" -
 alpha=$(api "$(login alice "$DEV_PW")" "$GW/api/org/me/companies" | jq -r '.data[] | select(.code == "ALPHA") | .id')
 north_mgr=$(api "$sa" "$GW/api/org/admin/companies/$alpha/positions" | jq -r '.data.items[] | select(.code == "NORTH_MGR") | .id')
 finance=$(api "$sa" "$GW/api/org/admin/companies/$alpha/groups" | jq -r '.data.items[] | select(.code == "FINANCE") | .id')
-api "$svc" "$GW/api/auth/grants" -d "$(jq -n --arg c "$alpha" --arg p "$north_mgr" --arg f "$finance" '
+m_erin=$(api "$svc" "$GW/api/org/companies/$alpha/members/by-subject/$(kc_user_id erin)" | jq -r .data.memberId)
+api "$svc" "$GW/api/auth/grants" -d "$(jq -n --arg c "$alpha" --arg p "$north_mgr" --arg f "$finance" --arg e "$m_erin" '
     def anchor($t; $id): {objectType: $t, objectId: $id, relation: "company_module", subjectType: "company_module", subjectId: ($c + "/hareno")};
     def to_pos($t; $id; $r): {objectType: $t, objectId: $id, relation: $r, subjectType: "position", subjectId: $p, subjectRelation: "holder"};
     def to_fin($t; $id; $r): {objectType: $t, objectId: $id, relation: $r, subjectType: "group", subjectId: $f, subjectRelation: "member"};
     {op: "grant", companyId: $c, tuples: [
         anchor("connection"; "mart"), to_pos("connection"; "mart"; "sql_user"), to_fin("connection"; "mart"; "sql_user"),
-        to_pos("connection"; "mart"; "data_sharer"),
+        to_pos("connection"; "mart"; "data_sharer"), to_pos("connection"; "mart"; "exporter"),
+        {objectType: "connection", objectId: "mart", relation: "exporter", subjectType: "member", subjectId: $e, subjectRelation: "mapped_user"},
         anchor("data_scope"; "mart.region.North"), to_pos("data_scope"; "mart.region.North"; "viewer"),
         anchor("data_scope"; "mart.region.*"), to_fin("data_scope"; "mart.region.*"; "viewer")]}')" >/dev/null
 
@@ -218,4 +222,7 @@ check "carol sql on mart"     "$(allowed carol connection mart sql_user)" false
 check "alice shares her data" "$(allowed alice connection mart data_sharer)" true
 check "bob shares his data"   "$(allowed bob connection mart data_sharer)" false
 check "erin sql on mart"      "$(allowed erin connection mart sql_user)" false
+check "alice exports mart"    "$(allowed alice connection mart exporter)" true
+check "bob exports mart"      "$(allowed bob connection mart exporter)" false
+check "erin exports mart"     "$(allowed erin connection mart exporter)" true
 exit $fail

@@ -71,7 +71,7 @@ In order; each lands as its own PR with its test. "Cond" refers to the condition
 | P2-08 | Report viewer: two linked charts and the matrix, polling with preserved state, the style system with self-hosted fonts | steps 4–5, cond 11 | A viewer sees a published report refresh in place with filters kept |
 | **B** | **Checkpoint: a published report refreshes for a policy-restricted viewer.** | | |
 | P2-09 | Minimal designer: add, remove and place charts on a grid, pick fields and measures from the dataset, link two charts by a shared filter | step 3 | A report built in the designer publishes and views correctly |
-| P2-10 | CSV export through the same policy pipeline, with a fresh decision (no cache) | step 7 | Export of a restricted viewer's report contains only their rows |
+| P2-10 | CSV export through the same policy pipeline, with a fresh decision (no cache) | step 7 | Export of a restricted viewer's report contains only their rows. Done 2026-10-14: per-tile CSV, `exporter` per data source (ARCHITECTURE-PLAN §10.4 item 18) |
 | P2-11 | Development Kubernetes namespace: images, minimal manifests (Helm comes in Phase 4) | exit | The slice runs in the namespace against the dev mart and dev Kiban |
 | P2-12 | Exit suite: known answers end to end; policy tests on view, preview and export | exit | All pass in CI and in the namespace |
 

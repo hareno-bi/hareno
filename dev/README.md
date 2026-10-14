@@ -35,8 +35,8 @@ Positions sit at the company root: Kiban 0.1.2 cannot place them on org units (A
 Browser login: `http://localhost:55440`.
 
 Hareno's own grants are re-applied on every `seed.sh` run (grants are idempotent):
-- The app's object types are `report`, `connection` (`sql_user` may use the SQL editor; `data_sharer` may share dashboards showing their own data) and `data_scope` (`viewer` holds a row scope such as `mart.region.North`, or `mart.region.*` for all).
-- On ALPHA's `mart` connection, the North manager (alice) may use SQL with North only and may share her data. The Finance group (bob, dave) may use SQL with all regions. erin is in ALPHA with no access of her own. BETA (carol) has no access.
+- The app's object types are `report`, `connection` (`sql_user` may use the SQL editor; `data_sharer` may share dashboards showing their own data; `exporter` may download CSV) and `data_scope` (`viewer` holds a row scope such as `mart.region.North`, or `mart.region.*` for all).
+- On ALPHA's `mart` connection, the North manager (alice) may use SQL with North only, may share her data and may download CSV. The Finance group (bob, dave) may use SQL with all regions, but not download. erin is in ALPHA with no data access of her own; she may download CSV, which gets her no rows. BETA (carol) has no access.
 
 ## Hareno API
 
@@ -54,6 +54,7 @@ Saved reports are dashboards: a title and tiles, each its own SQL query shown as
 - **Changing a report's SQL** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` on its connection.
 - **Viewing the published revision** needs only `viewer` (or `editor`), and runs under the viewer's own row scope.
 - **Sharing a viewer the sharer's data** needs `data_sharer` on the connection. The viewer then sees the sharer's rows (`internal/sqlapi/shares.go`; ARCHITECTURE-PLAN.md §10.4 item 17).
+- **Downloading a tile as CSV** (`GET /api/reports/{id}/tiles/{n}/csv`) needs `exporter` on the connection, asked fresh from Kiban each time. The file holds the downloader's own rows, up to `export_rows` (`internal/sqlapi/export.go`; ARCHITECTURE-PLAN.md §10.4 item 18).
 - **The creator** becomes the report's editor.
 
 Published dashboards refresh every 5 seconds while the tab is visible. The API caches each tile's result per connection, row scope and SQL (`internal/sqlapi/cache.go`). A cached result is reused until the connection's `watermark` query (here, `mart.etl_watermark`) returns a new value, and that query runs at most once per `refresh` interval. To watch a dashboard update, run the loader (`dev/mart/README.md`). The public demo keeps one running: `go run ./dev/mart/loader -every 5s -cycle 6`, which adds one order line every 5 seconds for 30 seconds, then removes them one by one, so the mart moves every 5 seconds without growing. Stop it and run `-clean` before the known-answer checks or the integration tests on this machine.

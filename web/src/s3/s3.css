@@ -152,6 +152,7 @@ dialog.share h3 { margin-top: 14px; }
 .accounts td code { white-space: nowrap; }
 .accounts ul.remarks { margin: 0; padding-left: 16px; text-align: left; }
 .accounts ul.remarks li { margin: 1px 0; }
-.as-of { font-size: 12px; margin: 6px 0 0; }
+.as-of { font-size: 12px; margin: 6px 0 0; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; }
+.as-of button { font-size: 12px; padding: 2px 8px; }
 .stale { color: var(--down); }
 .tile.is-stale { outline: 2px dashed var(--down); outline-offset: -2px; }
