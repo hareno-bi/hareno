@@ -41,6 +41,8 @@ type config struct {
 		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
 		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
 		DemoAccounts []signin.Account `yaml:"demo_accounts"`
+		// Sample data shown on the sign-in page: a fixed query, run with every row. Dev and demo stacks only.
+		DemoData sqlapi.Demo `yaml:"demo_data"`
 	} `yaml:"signin"`
 	AppDB       string `yaml:"app_db"` // application database DSN
 	Connections map[string]struct {
@@ -85,6 +87,9 @@ func main() {
 		mux.Handle("POST /api/reports/{id}/shares", si.Wrap(http.HandlerFunc(h.Share)))
 		mux.Handle("DELETE /api/reports/{id}/shares/{member}", si.Wrap(http.HandlerFunc(h.Unshare)))
 		mux.HandleFunc("GET /api/me", si.Me)
+		if h.Demo.SQL != "" {
+			mux.HandleFunc("GET /api/demo-data", h.DemoData)
+		}
 		mux.HandleFunc("GET /auth/login", si.Login)
 		mux.HandleFunc("GET /auth/callback", si.Callback)
 		mux.HandleFunc("POST /auth/logout", si.LogoutHandler)
@@ -154,6 +159,7 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		Grants:      k,
 		People:      authz.Directory{Gateway: cfg.Kiban.Gateway},
 		Members:     k,
+		Demo:        cfg.Signin.DemoData,
 		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
 		Connections: map[string]sqlapi.Connection{},
 		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
