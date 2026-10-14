@@ -120,7 +120,8 @@ dialog.share::backdrop { background: rgb(0 0 0 / 0.35); }
 dialog.share header { display: flex; align-items: center; }
 dialog.share .close { margin-left: auto; border: 0; font-size: 20px; line-height: 1; padding: 0 6px; }
 dialog.share h3 { margin-top: 14px; }
-.share-add { display: flex; gap: 8px; }
+.share-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.share-add input { min-width: 200px; }
 .share-add input { flex: 1; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--grid); border-radius: var(--radius); padding: 5px 8px; }
 .share-found, .share-list { list-style: none; padding: 0; margin: 8px 0; }
 .share-found li, .share-list li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }

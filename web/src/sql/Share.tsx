@@ -9,7 +9,6 @@ type Relation = 'viewer' | 'editor'
 type Data = 'viewer' | 'sharer'
 const json = { 'Content-Type': 'application/json' }
 const relations: Record<Relation, string> = { viewer: 'Can view', editor: 'Can edit' }
-const datas: Record<Data, string> = { viewer: 'their own data', sharer: 'my data' }
 
 export default function Share({ id }: { id: string }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -84,9 +83,9 @@ export default function Share({ id }: { id: string }) {
           <select value={relation} onChange={(e) => setRelation(e.target.value as Relation)} aria-label="Access to give">
             {(Object.keys(relations) as Relation[]).map((r) => <option key={r} value={r}>{relations[r]}</option>)}
           </select>
-          {canShareData && relation === 'viewer' && <DataPick value={data} onChange={setData} />}
+          {relation === 'viewer' && <DataPick value={data} onChange={setData} allowed={canShareData} />}
         </div>
-        {canShareData && relation === 'viewer' && data === 'sharer' && (
+        {relation === 'viewer' && data === 'sharer' && (
           <p className="note warn">They will see the rows you can see, even rows their own access does not allow.</p>
         )}
         {found.length > 0 && (
@@ -112,9 +111,8 @@ export default function Share({ id }: { id: string }) {
                   <select value={s.relation} aria-label={`Access for ${s.name}`} onChange={(e) => share(s.member, s.name, e.target.value as Relation, 'viewer')}>
                     {(Object.keys(relations) as Relation[]).map((r) => <option key={r} value={r}>{relations[r]}</option>)}
                   </select>
-                  {s.relation === 'viewer' && (canShareData
-                    ? <DataPick value={s.data} onChange={(d) => share(s.member, s.name, 'viewer', d)} label={`Data ${s.name} sees`} />
-                    : <span className="muted">sees {datas[s.data]}</span>)}
+                  {s.relation === 'viewer' && (
+                    <DataPick value={s.data} onChange={(d) => share(s.member, s.name, 'viewer', d)} allowed={canShareData} label={`Data ${s.name} sees`} />)}
                   <button onClick={() => unshare(s.member)}>Remove</button>
                 </li>
               ))}
@@ -125,10 +123,13 @@ export default function Share({ id }: { id: string }) {
   )
 }
 
-function DataPick({ value, onChange, label = 'Data they see' }: { value: Data; onChange: (d: Data) => void; label?: string }) {
+// DataPick chooses whose rows a viewer sees. "My data" needs permission to share your data on the
+// connection; without it the option shows, greyed out, with why.
+function DataPick({ value, onChange, allowed, label = 'Data they see' }: { value: Data; onChange: (d: Data) => void; allowed: boolean; label?: string }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value as Data)} aria-label={label}>
-      {(Object.keys(datas) as Data[]).map((d) => <option key={d} value={d}>Sees {datas[d]}</option>)}
+      <option value="viewer">Sees their own data</option>
+      <option value="sharer" disabled={!allowed}>Sees my data{allowed ? '' : ' (needs permission)'}</option>
     </select>
   )
 }
