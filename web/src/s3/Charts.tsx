@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { EChartsCoreOption } from 'echarts/core'
 import { Chart } from './Chart'
 import { fmtCompact, fmtDelta, fmtPct, fmtWhole } from './format'
-import type { ChartStyle, Style, Tokens } from './theme'
+import { treatment, type ChartStyle, type Style, type Tokens } from './theme'
 
 type Series = { name: string; data: number[] }
 type Period = { tonnes: number; flights: number; revenue: number; onTime: number }
@@ -128,26 +128,8 @@ function Card(props: {
 }
 
 function options(d: Data, c: ChartStyle, t: Tokens): Record<string, EChartsCoreOption> {
-  const token = (name: string) => t[name]
+  const { token, glow, line, bar, anim, grid, legend } = treatment(c, t)
   const months = d.months.map(monthLabel)
-  const grid = { left: 8, right: 16, top: 40, bottom: 8, containLabel: true }
-  const legend = { top: 0, left: 0 }
-  const colour = (i: number) => token(`--series-${(i % 6) + 1}`)
-  const glow = (i: number) => (c.glow ? { shadowBlur: c.glow, shadowColor: colour(i) } : {})
-  const area = (i: number) =>
-    c.areaFill === 'none' ? undefined
-      : c.areaFill === 'solid' ? { opacity: c.areaOpacity }
-      : { opacity: 1, color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [
-          { offset: 0, color: colour(i) + Math.round(c.areaOpacity * 255).toString(16).padStart(2, '0') },
-          { offset: 1, color: colour(i) + '00' }] } }
-  const line = (i: number) => ({
-    type: 'line', smooth: c.smooth, symbol: c.symbol, symbolSize: c.symbolSize, showSymbol: c.symbol !== 'none',
-    lineStyle: { width: c.lineWidth, ...glow(i) }, areaStyle: area(i),
-  })
-  const bar = (i: number) => ({
-    type: 'bar', barMaxWidth: c.barMaxWidth, barGap: c.barGap, itemStyle: { ...glow(i) },
-  })
-  const anim = { animationDuration: c.animationDuration, animationEasing: c.animationEasing as 'cubicOut' } // any ECharts easing name
   const r = c.barRadius
   const withAnim = (o: Record<string, EChartsCoreOption>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { ...anim, ...v }]))
   return withAnim({

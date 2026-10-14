@@ -1,0 +1,35 @@
+# Demo of the built frontend (web/dist) with the API and Kiban login behind it. Runs on the host
+# network so it reaches the API (127.0.0.1:55453) and Kiban's gateway (127.0.0.1:55440), which
+# listen on loopback only. ${HARENO_PUBLIC_HOST} is the address browsers use.
+server {
+    listen 55450;
+    root /usr/share/nginx/html;
+    gzip on;
+    gzip_types application/json application/javascript text/css;
+    add_header X-Content-Type-Options nosniff;
+    location / { try_files $uri /index.html; }
+    location ~ ^/(api|auth)/ {
+        proxy_pass http://127.0.0.1:55453;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}
+
+# Kiban's login pages, for browsers that cannot reach the gateway on loopback. Kiban issues tokens
+# for http://localhost:55440 only, so requests go on with that Host and the replies are rewritten
+# back. Keycloak marks its cookies Secure, which a browser drops on plain HTTP; this dev proxy
+# removes the flag. Only the realm's login pages and their static files are exposed, not Kiban's
+# API or the admin console. Dev only: passwords cross the network unencrypted.
+server {
+    listen 55451;
+    location / { return 404; }
+    location ~ ^/(auth/realms/kiban/|resources/) {
+        proxy_pass http://127.0.0.1:55440;
+        proxy_set_header Host localhost:55440;
+        proxy_set_header Accept-Encoding "";
+        proxy_redirect http://localhost:55440/ http://${HARENO_PUBLIC_HOST}:55451/;
+        proxy_cookie_flags ~ nosecure samesite=lax;
+        sub_filter 'http://localhost:55440/' 'http://${HARENO_PUBLIC_HOST}:55451/';
+        sub_filter_once off;
+    }
+}

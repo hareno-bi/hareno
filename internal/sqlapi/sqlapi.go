@@ -1,6 +1,7 @@
 // Package sqlapi serves the SQL editor's query endpoint (Phase 2 round 1, R1-2):
 //
 //	POST /api/sql  {"connection": "mart", "sql": "SELECT ..."}   Authorization: Bearer <user token>
+//	GET  /api/connections   the connections the user may query
 //
 // Per request: verify the user, resolve the connection's company for them, require the
 // connection's sql_user relation in Kiban, derive the user's row scope from data_scope objects in
@@ -106,6 +107,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
+}
+
+// List serves GET /api/connections: the connections the user may query with SQL, by name.
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	sub, err := h.Authz.User(ctx, bearer)
+	if err != nil {
+		fail(w, http.StatusUnauthorized, "sign in required")
+		return
+	}
+	names := []string{}
+	for name, c := range h.Connections {
+		company, err := h.Authz.Company(ctx, bearer, sub, c.Company)
+		if errors.Is(err, authz.ErrNoCompany) {
+			continue
+		}
+		var ok map[authz.Item]bool
+		if err == nil {
+			ok, err = h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{{Type: "connection", ID: name, Relation: "sql_user"}})
+		}
+		if err != nil {
+			fail(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return
+		}
+		if ok[authz.Item{Type: "connection", ID: name, Relation: "sql_user"}] {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{"connections": names})
 }
 
 // access asks Kiban, in one batch, whether the user may use SQL on the connection and which

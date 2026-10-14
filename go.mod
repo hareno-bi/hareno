@@ -6,6 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/rosschiu/kiban v0.1.2
 	go.yaml.in/yaml/v3 v3.0.4
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (

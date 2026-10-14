@@ -87,6 +87,15 @@ func TestEndToEnd(t *testing.T) {
 			t.Errorf("%s %s %q: %d %s, want %d %s", tc.user, tc.conn, tc.sql, status, body, tc.status, tc.want)
 		}
 	}
+	for user, want := range map[string]string{"alice": `["mart"]`, "mallory": `[]`, "carol": `[]`} {
+		r := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+		r.Header.Set("Authorization", "Bearer "+user)
+		w := httptest.NewRecorder()
+		h.List(w, r)
+		if got := strings.TrimSpace(w.Body.String()); got != `{"connections":`+want+`}` {
+			t.Errorf("%s connections: %s, want %s", user, got, want)
+		}
+	}
 	for _, want := range []string{`"msg":"sql ran"`, `"msg":"sql refused"`, `"msg":"sql failed"`, `"user":"alice"`} {
 		if !strings.Contains(audit.String(), want) {
 			t.Errorf("audit log lacks %s", want)

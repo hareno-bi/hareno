@@ -14,3 +14,4 @@ __pycache__/
 
 # Local work kept out of GitHub (e.g. the standalone Kiban harness for the Kiban team)
 local/
+spikes/s3/*.png
