@@ -24,10 +24,12 @@ type Request struct {
 }
 
 // Result is compiled SQL. Malloy wraps each result row in one JSON object column; Columns lists
-// its keys in order.
+// its keys in order, and Types their Malloy types (e.g. {"kind": "timestamptz_type",
+// "timeframe": "month"}).
 type Result struct {
 	SQL     string
 	Columns []string
+	Types   []map[string]any
 }
 
 // Schemas reports the columns of a table or of a SQL query, in Malloy's field format.
@@ -69,7 +71,8 @@ func (c *Client) Compile(ctx context.Context, req Request, schemas Schemas) (Res
 				SQL    string `json:"sql"`
 				Schema struct {
 					Fields []struct {
-						Name string `json:"name"`
+						Name string         `json:"name"`
+						Type map[string]any `json:"type"`
 					} `json:"fields"`
 				} `json:"schema"`
 			} `json:"result"`
@@ -95,6 +98,7 @@ func (c *Client) Compile(ctx context.Context, req Request, schemas Schemas) (Res
 			r := Result{SQL: resp.Result.SQL}
 			for _, f := range resp.Result.Schema.Fields {
 				r.Columns = append(r.Columns, f.Name)
+				r.Types = append(r.Types, f.Type)
 			}
 			return r, nil
 		}

@@ -29,7 +29,8 @@ type golden struct {
 }
 
 // TestGolden runs the S1 golden queries through compile, execute and decode, against the dev
-// mart's known answers. Cases marked `gap` must still fail until the gap is closed (P2-03).
+// mart's known answers. Cases marked `gap` are raw-Malloy behaviours that must keep failing; the
+// dataset layer handles them (internal/model).
 func TestGolden(t *testing.T) {
 	compilertest.Require(t)
 	b, err := os.ReadFile("testdata/golden.yaml")
@@ -48,9 +49,9 @@ func TestGolden(t *testing.T) {
 			case c.Gap == "" && problem != "":
 				t.Errorf("%s: %s", c.Title, problem)
 			case c.Gap != "" && problem == "":
-				t.Errorf("%s now passes: remove its gap marker (%s)", c.ID, c.Gap)
+				t.Errorf("%s now passes in raw Malloy: Malloy changed; review the gap and the dataset guard (%s)", c.ID, c.Gap)
 			case c.Gap != "":
-				t.Logf("known gap, still failing as expected: %s\n  %s", c.Gap, problem)
+				t.Logf("raw Malloy gap, failing as expected: %s\n  %s", c.Gap, problem)
 			}
 		})
 	}
@@ -195,5 +196,28 @@ func TestSame(t *testing.T) {
 		if got := same(tc.actual, tc.want); got != tc.ok {
 			t.Errorf("same(%v, %v) = %v, want %v", tc.actual, show([][]*string{{tc.want}}), got, tc.ok)
 		}
+	}
+}
+
+func TestTimeLabel(t *testing.T) {
+	hk := mustZone("Asia/Hong_Kong")
+	for _, tc := range []struct {
+		frame, in, want string
+	}{
+		{"month", "2025-12-31T16:00:00+00:00", "2026-01"},
+		{"quarter", "2026-03-31T16:00:00+00:00", "2026-Q2"},
+		{"day", "2026-03-31T16:00:00+00:00", "2026-04-01"},
+		{"", "2026-01-15T10:00:00+00:00", "2026-01-15T18:00:00+08:00"},
+	} {
+		typ := map[string]any{"kind": "timestamptz_type"}
+		if tc.frame != "" {
+			typ["timeframe"] = tc.frame
+		}
+		if got := timeLabel(typ, hk)(tc.in); got != tc.want {
+			t.Errorf("%s %s: got %v, want %s", tc.frame, tc.in, got, tc.want)
+		}
+	}
+	if got := timeLabel(map[string]any{"kind": "number_type"}, hk)(json.Number("1")); got != json.Number("1") {
+		t.Errorf("numbers must pass through, got %v", got)
 	}
 }

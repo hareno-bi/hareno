@@ -2,8 +2,9 @@
 # (spikes/s1/cases.yaml). Expected values are exact decimal text; a number matches when the
 # actual value rounds to the expected one at the expected number of decimals. Month and date
 # expectations match timestamps rendered in the business time zone (Asia/Hong_Kong).
-# A case with `gap` is known not to pass yet: the test requires it to still fail, so the marker is
-# removed when the gap is closed.
+# A case with `gap` fails in raw Malloy by design of the compiler: the test requires it to keep
+# failing, so a Malloy change that alters it is noticed. Hareno handles each one in the dataset
+# layer (internal/model, TestKnownAnswers); queries reach Malloy only through that layer.
 - id: C01
   title: total revenue (complete)
   steps:
@@ -49,7 +50,7 @@
       - '8.00'
 - id: C06
   title: shipping by product category must be rejected (no allocation rule)
-  gap: 'P2-03 condition 1: the planner must reject an order-grain measure grouped below its grain; Malloy answers'
+  gap: 'raw Malloy answers; the dataset planner rejects it (condition 1, model.ErrGrain)'
   steps:
   - q: 'run: complete -> { group_by: category; aggregate: shipping }'
     reject: true
@@ -267,7 +268,7 @@
       - '587.75'
 - id: C17
   title: average order value by customer incl. one with no orders; total is not an average of averages
-  gap: 'P2-03 condition 2: guarded division; Malloy raises division by zero'
+  gap: 'raw Malloy raises division by zero; dataset ratios are guarded (condition 2)'
   steps:
   - q: |
       run: customers extend {
@@ -311,7 +312,7 @@
       - '100.00'
 - id: C20
   title: sum over only NULL values is NULL, not 0
-  gap: 'P2-03 condition 2: null-preserving sums; Malloy returns 0'
+  gap: 'raw Malloy returns 0; dataset sums stay null (condition 2)'
   steps:
   - q: 'run: complete -> { where: order_id = 106; aggregate: shipping }'
     expect:

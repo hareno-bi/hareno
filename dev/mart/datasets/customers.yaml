@@ -1,0 +1,29 @@
+# Dataset model document for the dev mart at customer grain: every customer, including those
+# without orders (Ember), with their complete orders and lines.
+name: customer_orders
+connection: mart
+timezone: Asia/Hong_Kong
+root: customers
+tables:
+  customers:
+    table: mart.dim_customer
+    primary_key: customer_id
+  orders:
+    table: mart.fact_order
+    primary_key: order_id
+    where: status = 'complete'
+  lines:
+    table: mart.fact_order_line
+    columns:
+      line_revenue: quantity * unit_price * (1 - coalesce(discount, 0))
+joins:
+  - {name: o, to: orders, kind: many, from_key: customer_id}
+  - {name: line, parent: o, to: lines, kind: many, from_key: order_id}
+dimensions:
+  customer_name: customer_name
+  segment: segment
+measures:
+  customer_count: {count: "*"}
+  order_count: {count: o}
+  revenue: {sum: o.line.line_revenue}
+  aov: {ratio: [revenue, order_count]}
