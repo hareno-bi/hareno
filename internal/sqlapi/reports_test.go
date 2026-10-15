@@ -463,6 +463,16 @@ func TestReports(t *testing.T) {
 	if c, _ := json.Marshal(b["tiles"].([]any)[0].(map[string]any)["columns"]); string(c) != `["region_name","revenue","order_count"]` {
 		t.Errorf("dataset tile columns: %s", c)
 	}
+	// Shipping beside lines is a fan-out-safe (symmetric) sum: exact, without the scale of 9
+	// Malloy's version of it leaves (compiler/patches).
+	raw, _ := json.Marshal(map[string]any{"connection": "mart", "dataset": map[string]any{"dataset": "sales", "measures": []string{"shipping", "line_count"}}})
+	r := httptest.NewRequest("POST", "/api/sql", bytes.NewReader(raw))
+	r.Header.Set("Authorization", "Bearer bob")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if got := strings.TrimSpace(w.Body.String()); !strings.Contains(got, `"rows":[[42.75,`) {
+		t.Errorf("total shipping: %d %s", w.Code, got)
+	}
 	st, b = call("dan", "PUT", dpath, map[string]any{"draft": draft("SQL", regions), "version": 1})
 	expect("dan adds SQL", st, 403, b)
 	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "dataset": byRegion,
