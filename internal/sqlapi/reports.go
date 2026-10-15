@@ -27,9 +27,10 @@ import (
 //	POST   /api/reports/{id}/run      run the published revision's tiles for the viewer (see scope)
 //	DELETE /api/reports/{id}
 //
-// Kiban holds who may do what: report#editor and report#viewer, and connection#sql_user.
-// Changing a report's SQL needs editor and sql_user; viewing the published revision needs only
-// viewer (or editor), not SQL rights. The database filters rows for whoever runs it.
+// Kiban holds who may do what: report#editor and report#viewer, and connection#sql_user and
+// dataset_user. Changing a report needs editor, and sql_user to change its SQL; with dataset_user
+// instead, an editor may change everything but SQL, and add dataset tiles (datasets.go). Viewing
+// the published revision needs only viewer (or editor). The database filters rows for whoever runs it.
 
 // Granter writes relation tuples on Hareno's object types; *sdk.Client satisfies it.
 type Granter interface {
@@ -52,6 +53,8 @@ type Tile struct {
 	Show   string          `json:"show"`             // "chart", "table" or "matrix"
 	Wide   bool            `json:"wide"`             // the dashboard's full width, or half
 	Matrix *Matrix         `json:"matrix,omitempty"` // with show "matrix" only (matrix.go)
+	// Dataset, instead of SQL, builds the tile from a governed dataset (datasets.go).
+	Dataset *DatasetQuery `json:"dataset,omitempty"`
 }
 
 const maxTiles = 24
@@ -66,13 +69,24 @@ func (d Draft) valid() bool {
 		}
 	}
 	for _, t := range d.Tiles {
-		if t.SQL == "" || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
+		if (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
 			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") ||
-			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid()) {
+			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid(t.Dataset != nil)) {
 			return false
 		}
 	}
 	return true
+}
+
+// sqls are the draft's SQL tiles' queries.
+func (d Draft) sqls() []string {
+	var out []string
+	for _, t := range d.Tiles {
+		if t.SQL != "" {
+			out = append(out, t.SQL)
+		}
+	}
+	return out
 }
 
 // name is how errors refer to tile i.
@@ -117,6 +131,7 @@ type rights struct {
 	company    string // Kiban company id
 	view, edit bool
 	sql        bool // sql_user on the report's connection: needed to change its SQL
+	design     bool // dataset_user or sql_user: may change the report, but its SQL only with sql
 	export     bool // exporter on the report's connection: may download its rows (export.go)
 }
 
@@ -131,11 +146,12 @@ func (h *Handler) rights(ctx context.Context, bearer, sub string, rep reportRow)
 	edit := authz.Item{Type: "report", ID: rep.ID, Relation: "editor"}
 	sql := authz.Item{Type: "connection", ID: rep.Connection, Relation: "sql_user"}
 	export := authz.Item{Type: "connection", ID: rep.Connection, Relation: "exporter"}
-	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{view, edit, sql, export})
+	design := authz.Item{Type: "connection", ID: rep.Connection, Relation: "dataset_user"}
+	ok, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{view, edit, sql, export, design})
 	if err != nil {
 		return rights{}, err
 	}
-	return rights{company: company, view: ok[view] || ok[edit], edit: ok[edit], sql: ok[sql], export: ok[export]}, nil
+	return rights{company: company, view: ok[view] || ok[edit], edit: ok[edit], sql: ok[sql], export: ok[export], design: ok[design] || ok[sql]}, nil
 }
 
 func (h *Handler) find(ctx context.Context, id string) (reportRow, error) {
@@ -261,12 +277,13 @@ func (h *Handler) CreateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	use := authz.Item{Type: "connection", ID: req.Connection, Relation: "sql_user"}
-	allowed, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{use})
+	design := authz.Item{Type: "connection", ID: req.Connection, Relation: "dataset_user"}
+	allowed, err := h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{use, design})
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
-	if !allowed[use] {
+	if !allowed[use] && !(allowed[design] && len(req.Draft.sqls()) == 0) {
 		fail(w, http.StatusForbidden, "you may not query this connection with SQL")
 		return
 	}
@@ -297,7 +314,7 @@ func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	out := map[string]any{"id": rep.ID, "connection": rep.Connection, "canEdit": rt.edit, "canEditSQL": rt.edit && rt.sql, "canExport": rt.export}
+	out := map[string]any{"id": rep.ID, "connection": rep.Connection, "canEdit": rt.edit && rt.design, "canEditSQL": rt.edit && rt.sql, "canExport": rt.export}
 	if rt.edit {
 		out["draft"], out["version"] = rep.Draft, rep.Version
 		canShare, err := h.refresh(r.Context(), bearer, sub, rep, rt)
@@ -320,10 +337,10 @@ func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {
 	reply(w, out)
 }
 
-// editable loads a report for a change to its content: editor and sql_user both.
+// editable loads a report for a change to its content: editor, and sql_user or dataset_user.
 func (h *Handler) editable(w http.ResponseWriter, r *http.Request) (reportRow, rights, string, string, bool) {
 	rep, rt, bearer, sub, ok := h.load(w, r)
-	if ok && !(rt.edit && rt.sql) {
+	if ok && !(rt.edit && rt.design) {
 		fail(w, http.StatusForbidden, "you may not change this report")
 		ok = false
 	}
@@ -331,7 +348,7 @@ func (h *Handler) editable(w http.ResponseWriter, r *http.Request) (reportRow, r
 }
 
 func (h *Handler) SaveReport(w http.ResponseWriter, r *http.Request) {
-	rep, _, _, sub, ok := h.editable(w, r)
+	rep, rt, _, sub, ok := h.editable(w, r)
 	if !ok {
 		return
 	}
@@ -341,6 +358,11 @@ func (h *Handler) SaveReport(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decode(w, r, &req) || !req.Draft.valid() {
 		fail(w, http.StatusBadRequest, "expected {\"draft\": {\"title\", \"tiles\": [{\"title\", \"sql\", \"chart\", \"show\", \"wide\"}]}, \"version\": ...}")
+		return
+	}
+	// Without sql_user, SQL tiles may be moved, restyled or removed, but no SQL may be added or changed.
+	if old := rep.Draft.sqls(); !rt.sql && slices.ContainsFunc(req.Draft.sqls(), func(s string) bool { return !slices.Contains(old, s) }) {
+		fail(w, http.StatusForbidden, "you may not change this report's SQL")
 		return
 	}
 	var version int
@@ -381,7 +403,11 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, t := range rep.Draft.Tiles {
-		if _, err := h.exec(ctx, sub, rep, scope, t.SQL); err != nil {
+		sql, args, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, t.Matrix)
+		if err == nil {
+			_, err = h.exec(ctx, sub, rep, scope, sql, args...)
+		}
+		if err != nil {
 			fail(w, http.StatusBadRequest, "not published: "+rep.Draft.name(i)+": "+err.Error())
 			return
 		}
@@ -471,21 +497,25 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	all := make([]tileResult, len(body.Tiles))
 	tiles := make([]tileResult, len(body.Tiles))
 	for i, t := range body.Tiles {
-		all[i] = get(t.SQL)
-		if all[i].response == nil {
+		base, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil)
+		if err == nil {
+			all[i] = get(base)
+		}
+		if err == nil && all[i].response != nil {
+			var sql string
+			var args []any
+			sql, args, tiles[i].Filtered, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, t.Matrix)
+			if err == nil {
+				filtered := tiles[i].Filtered
+				tiles[i] = get(sql, args...)
+				tiles[i].Filtered = filtered
+			}
+		} else if err == nil {
 			tiles[i] = all[i]
-			continue
 		}
-		sql, args := t.SQL, []any(nil)
-		on := req.Filters.on(all[i].Columns)
-		if len(on) > 0 {
-			sql, args = req.Filters.wrap(sql, on)
+		if err != nil {
+			tiles[i] = tileResult{Error: err.Error()}
 		}
-		if t.Matrix != nil {
-			sql = t.Matrix.wrap(sql)
-		}
-		tiles[i] = get(sql, args...)
-		tiles[i].Filtered = on
 	}
 	cols := slices.Clone(body.Filters)
 	for c := range req.Filters {

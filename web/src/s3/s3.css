@@ -149,7 +149,8 @@ dialog.share h3 { margin-top: 14px; }
 .tile .toolbar { flex-wrap: wrap; margin-top: 6px; }
 .tile .sql-error { margin-top: 0; }
 .tile .sql-table { height: 300px; }
-.add-tile { grid-column: 1 / -1; border-style: dashed; padding: 14px; color: var(--muted); }
+.add-tile { grid-column: 1 / -1; display: flex; gap: 12px; }
+.add-tile button { flex: 1; border-style: dashed; padding: 14px; color: var(--muted); }
 .note.warn { color: var(--down); margin: 8px 0 0; }
 @media (max-width: 900px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } .tile header { flex-wrap: wrap; } }
 .signin:has(.accounts) { max-width: 1300px; }
@@ -179,3 +180,5 @@ dialog.share h3 { margin-top: 14px; }
 .pivot .m-cell .link:hover { color: var(--accent); }
 .pivot .m-row { position: static; }
 .tile .pivot { height: auto; max-height: 420px; }
+.data-pick { padding: 4px 0 10px; }
+.data-pick .field-controls { max-width: 100%; }

@@ -55,7 +55,7 @@ export default function MatrixTable({ result, spec, onPick }: {
   }
   const rows = [...rowKeys].sort((a, b) => compareKeys(a[1], b[1]))
   const cols: [string, Value][] = [...[...colKeys].sort((a, b) => compare(a[1], b[1])), [TOTAL, null]]
-  const labels = spec.values.map((v) => `${aggs[v.agg]} of ${v.column}`)
+  const labels = spec.values.map((v) => (v.agg ? `${aggs[v.agg]} of ${v.column}` : v.column))
   const template = `minmax(180px, 1.6fr) repeat(${cols.length * nV}, minmax(96px, 1fr))`
   const minWidth = 180 + cols.length * nV * 96
   const pick = (column: string, v: Value) => onPick && v !== null && (

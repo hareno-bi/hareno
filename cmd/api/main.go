@@ -23,6 +23,8 @@ import (
 
 	"github.com/hareno-bi/hareno/internal/appdb"
 	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/compiler"
+	"github.com/hareno-bi/hareno/internal/model"
 	"github.com/hareno-bi/hareno/internal/signin"
 	"github.com/hareno-bi/hareno/internal/sqlapi"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
@@ -45,7 +47,11 @@ type config struct {
 		// Sample data shown on the sign-in page: a fixed query, run with every row. Dev and demo stacks only.
 		DemoData sqlapi.Demo `yaml:"demo_data"`
 	} `yaml:"signin"`
-	AppDB       string `yaml:"app_db"` // application database DSN
+	AppDB string `yaml:"app_db"` // application database DSN
+	// Governed datasets (internal/model documents) and the Malloy sidecar that compiles their
+	// queries (compiler/server.ts). Without a compiler, dashboards are SQL only.
+	Compiler    string   `yaml:"compiler"` // e.g. http://127.0.0.1:55436
+	Datasets    []string `yaml:"datasets"` // model document paths
 	Connections map[string]struct {
 		Company string              `yaml:"company"`
 		Mode    string              `yaml:"mode"`
@@ -83,6 +89,7 @@ func main() {
 		}
 		mux.Handle("POST /api/sql", si.Wrap(h))
 		mux.Handle("GET /api/connections", si.Wrap(http.HandlerFunc(h.List)))
+		mux.Handle("GET /api/datasets", si.Wrap(http.HandlerFunc(h.ListDatasets)))
 		mux.Handle("GET /api/reports", si.Wrap(http.HandlerFunc(h.ListReports)))
 		mux.Handle("POST /api/reports", si.Wrap(http.HandlerFunc(h.CreateReport)))
 		mux.Handle("GET /api/reports/{id}", si.Wrap(http.HandlerFunc(h.GetReport)))
@@ -195,6 +202,23 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 
 			ExportRows:    cmp.Or(c.ExportRows, 1_000_000),
 			ExportTimeout: cmp.Or(c.ExportTimeout, 5*time.Minute),
+		}
+	}
+	if cfg.Compiler != "" {
+		h.Datasets = &sqlapi.Datasets{Compiler: &compiler.Client{URL: cfg.Compiler}, ByName: map[string]*model.Dataset{}}
+		for _, p := range cfg.Datasets {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return nil, nil, err
+			}
+			d, err := model.Parse(b)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", p, err)
+			}
+			if _, ok := h.Connections[d.Connection]; !ok {
+				return nil, nil, fmt.Errorf("%s: no connection %q", p, d.Connection)
+			}
+			h.Datasets.ByName[d.Name] = d
 		}
 	}
 	return h, si, nil

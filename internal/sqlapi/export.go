@@ -101,9 +101,11 @@ func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, `filters: expected {"<column>": ["<value>", ...]}`)
 		return
 	}
-	sql, args := body.Tiles[n].SQL, []any(nil)
-	if len(filters) > 0 {
-		sql, args = filters.wrap(sql, filters.on(slices.Collect(maps.Keys(filters))))
+	// a matrix tile downloads the rows it totals
+	sql, args, _, err := h.tileQuery(ctx, rep.Connection, body.Tiles[n], slices.Collect(maps.Keys(filters)), filters, nil)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	audit = audit.With("revision", *rep.Published, "tile", n, "filters", filters)
 

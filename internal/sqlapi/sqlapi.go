@@ -49,7 +49,8 @@ type Handler struct {
 	Grants      Granter
 	People      People
 	Members     Members
-	Demo        Demo // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
+	Datasets    *Datasets // governed datasets (datasets.go); nil when none are configured
+	Demo        Demo      // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
 
 	results results // dashboard results (cache.go)
 }
@@ -87,6 +88,8 @@ type request struct {
 	Connection string  `json:"connection"`
 	SQL        string  `json:"sql"`
 	Matrix     *Matrix `json:"matrix"` // optional: total the rows as a matrix tile does (matrix.go)
+	// Dataset, instead of SQL, previews a dataset tile; it needs dataset_user or sql_user (datasets.go).
+	Dataset *DatasetQuery `json:"dataset"`
 }
 
 type response struct {
@@ -105,7 +108,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req request
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.SQL == "" || (req.Matrix != nil && !req.Matrix.valid()) {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || (req.SQL == "") == (req.Dataset == nil) ||
+		(req.Matrix != nil && !req.Matrix.valid(req.Dataset != nil)) || (req.Dataset != nil && !req.Dataset.valid()) {
 		fail(w, http.StatusBadRequest, "expected {\"connection\": ..., \"sql\": ...}")
 		return
 	}
@@ -128,16 +132,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
-	audit := h.Log.With("user", sub, "company", conn.Company, "connection", req.Connection, "sql", req.SQL, "scope", scope)
+	if req.Dataset != nil && !allowed && err == nil {
+		allowed, err = h.mayDesign(ctx, bearer, sub, req.Connection, conn)
+		if err != nil {
+			fail(w, http.StatusServiceUnavailable, "authorization unavailable")
+			return
+		}
+	}
+	audit := h.Log.With("user", sub, "company", conn.Company, "connection", req.Connection, "sql", req.SQL, "dataset", req.Dataset, "scope", scope)
 	if !allowed {
 		audit.Info("sql refused", "reason", "no sql_user")
 		fail(w, http.StatusForbidden, "you may not query this connection with SQL")
 		return
 	}
 
-	sql := req.SQL
-	if req.Matrix != nil {
-		sql = req.Matrix.wrap(sql)
+	sql, _, _, err := h.tileQuery(ctx, req.Connection, Tile{SQL: req.SQL, Dataset: req.Dataset}, nil, nil, req.Matrix)
+	if err != nil {
+		audit.Info("sql failed", "error", err.Error())
+		fail(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	res, err := conn.Exec.Run(ctx, scope, sql)
 	if err != nil {
@@ -158,7 +171,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
 }
 
-// List serves GET /api/connections: the connections the user may query with SQL, by name.
+// List serves GET /api/connections: the connections the user may build dashboards on (sql_user
+// or dataset_user), and those they may query with SQL, by name.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	bearer := bearerOf(r)
@@ -167,27 +181,33 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusUnauthorized, "sign in required")
 		return
 	}
-	names := []string{}
+	names, sql := []string{}, []string{}
 	for name, c := range h.Connections {
 		company, err := h.Authz.Company(ctx, bearer, sub, c.Company)
 		if errors.Is(err, authz.ErrNoCompany) {
 			continue
 		}
+		use := authz.Item{Type: "connection", ID: name, Relation: "sql_user"}
+		design := authz.Item{Type: "connection", ID: name, Relation: "dataset_user"}
 		var ok map[authz.Item]bool
 		if err == nil {
-			ok, err = h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{{Type: "connection", ID: name, Relation: "sql_user"}})
+			ok, err = h.Authz.Allowed(ctx, bearer, sub, company, []authz.Item{use, design})
 		}
 		if err != nil {
 			fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 			return
 		}
-		if ok[authz.Item{Type: "connection", ID: name, Relation: "sql_user"}] {
+		if ok[use] || ok[design] {
 			names = append(names, name)
+		}
+		if ok[use] {
+			sql = append(sql, name)
 		}
 	}
 	slices.Sort(names)
+	slices.Sort(sql)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]string{"connections": names})
+	json.NewEncoder(w).Encode(map[string][]string{"connections": names, "sql": sql})
 }
 
 // access asks Kiban, in one batch, whether the user may use SQL on the connection and which

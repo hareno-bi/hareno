@@ -55,6 +55,7 @@ type Account struct {
 	Rows      string   `json:"rows" yaml:"rows"`            // their row scope, e.g. "North"
 	ShareData bool     `json:"shareData" yaml:"share_data"` // may share dashboards showing their data
 	Export    bool     `json:"export" yaml:"export"`        // may download CSV
+	Datasets  bool     `json:"datasets" yaml:"datasets"`    // may build dashboards from datasets (without SQL)
 }
 
 type session struct {

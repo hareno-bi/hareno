@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/hareno-bi/hareno/internal/compiler"
 )
 
 func TestCell(t *testing.T) {
@@ -42,7 +44,21 @@ func TestMatrixWrap(t *testing.T) {
 	want := `SELECT GROUPING("region", "cat", "month") AS hareno_level, "region", "cat", "month", sum("n") AS "n (sum)", avg("n") AS "n (avg)" FROM (
 SELECT 1
 ) AS hareno_matrix GROUP BY ROLLUP("region", "cat"), ROLLUP("month")`
-	if got := m.wrap("SELECT 1;\n"); got != want || !m.valid() {
+	if got := m.wrap("SELECT 1;\n"); got != want || !m.valid(false) {
 		t.Errorf("wrap = %s", got)
+	}
+}
+
+func TestDatasetSQL(t *testing.T) {
+	if got := where(Filters{"region": {"North", `O'Brien \ x`}}, []string{"region"}); got[0] != `(region = 'North' or region = 'O\'Brien \\ x')` {
+		t.Errorf("where = %s", got)
+	}
+	c := compiler.Result{SQL: "SELECT row_to_json(x) FROM x;", Columns: []string{"month", "revenue"},
+		Types: []map[string]any{{"kind": "timestamptz_type", "timeframe": "month"}, {"kind": "number_type"}}}
+	want := `SELECT to_char(hareno_r."month" AT TIME ZONE 'Asia/Hong_Kong', 'YYYY-MM') AS "month", hareno_r."revenue" AS "revenue" FROM (
+SELECT row_to_json(x) FROM x
+) AS hareno_q(hareno_row) CROSS JOIN LATERAL json_to_record(hareno_row::json) AS hareno_r("month" timestamptz, "revenue" numeric) ORDER BY 1`
+	if got := unwrap(c, "Asia/Hong_Kong", 1); got != want {
+		t.Errorf("unwrap = %s", got)
 	}
 }

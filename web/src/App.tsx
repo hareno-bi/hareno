@@ -16,7 +16,7 @@ const fromHash = (): { page: Page; id?: string } => {
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
 // demo: test accounts, listed only when the API's configuration has them (dev and demo stacks).
-type Account = { user: string; password: string; remarks: string[]; company: string; via: string; sql: boolean; rows: string; shareData: boolean; export: boolean }
+type Account = { user: string; password: string; remarks: string[]; company: string; via: string; sql: boolean; rows: string; shareData: boolean; export: boolean; datasets: boolean }
 function useUser() {
   const [user, setUser] = useState<string | null | undefined>(undefined)
   const [demo, setDemo] = useState<Account[]>([])
@@ -116,7 +116,7 @@ function SignIn({ demo }: { demo: Account[] }) {
                     <td><code>{a.password}</code> <Copy text={a.password} /></td>
                     <td>{a.company}</td>
                     <td>{a.via}</td>
-                    <td>{yes(a.sql)}</td>
+                    <td>{a.sql ? 'Yes, with SQL' : a.datasets ? 'Yes, from datasets' : yes(false)}</td>
                     <td>{a.rows === 'None' ? <span className="muted">None</span> : a.rows}</td>
                     <td>{yes(a.shareData)}</td>
                     <td>{yes(a.export)}</td>
