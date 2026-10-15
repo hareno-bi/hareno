@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/model"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
 )
 
@@ -168,7 +169,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		res.Rows = [][]any{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated})
+	json.NewEncoder(w).Encode(struct {
+		response
+		Display map[string]model.Display `json:"display,omitempty"`
+	}{response{Columns: res.Columns, Rows: res.Rows, Truncated: res.Truncated}, h.display(req.Dataset)})
 }
 
 // List serves GET /api/connections: the connections the user may build dashboards on (sql_user

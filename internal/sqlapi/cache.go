@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/hareno-bi/hareno/internal/model"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
 )
 
@@ -58,6 +59,8 @@ type tileResult struct {
 	Error string    `json:"error,omitempty"` // why the refresh failed, or why there is no result
 	// Filtered are the viewer's filters that apply to this tile (filters.go).
 	Filtered []string `json:"filtered,omitempty"`
+	// Display is how a dataset tile's columns are shown (datasets.go).
+	Display map[string]model.Display `json:"display,omitempty"`
 }
 
 func (c *results) now() time.Time {

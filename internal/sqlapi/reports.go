@@ -516,6 +516,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			tiles[i] = tileResult{Error: err.Error()}
 		}
+		tiles[i].Display = h.display(t.Dataset)
 	}
 	cols := slices.Clone(body.Filters)
 	for c := range req.Filters {

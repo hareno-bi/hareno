@@ -51,3 +51,23 @@ measures:
   profit: {expr: "revenue - cost"}
   margin_pct: {ratio: [profit, revenue]}
   aov: {ratio: [revenue, order_count]}
+# How fields are shown: labels default to the name, capitalised; numbers to up to 2 decimals.
+display:
+  order_id: {label: Order}
+  ordered_at: {label: Ordered at}
+  order_month: {label: Month}
+  region_name: {label: Region}
+  customer_name: {label: Customer}
+  category: {label: Category}
+  product_name: {label: Product}
+  order_count: {label: Orders, format: integer}
+  line_count: {label: Order lines, format: integer}
+  customer_count: {label: Customers, format: integer}
+  shipping: {label: Shipping, format: money}
+  avg_shipping: {label: Average shipping, format: money}
+  revenue: {label: Revenue, format: money}
+  discount_amount: {label: Discounts, format: money}
+  cost: {label: Cost, format: money}
+  profit: {label: Profit, format: money}
+  margin_pct: {label: Margin, format: percent}
+  aov: {label: Average order value, format: money}

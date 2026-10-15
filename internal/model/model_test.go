@@ -87,6 +87,10 @@ measures:
 	if _, err := Parse([]byte(base)); err != nil {
 		t.Fatalf("base document must parse: %v", err)
 	}
+	d, _ := Parse([]byte(base + "display:\n  m: {label: Amount, format: money}\n"))
+	if d.Shown("m") != (Display{"Amount", "money"}) || d.Shown("d") != (Display{Label: "D"}) {
+		t.Errorf("shown: %v, %v", d.Shown("m"), d.Shown("d"))
+	}
 	for _, tc := range []struct{ from, to, want string }{
 		{"timezone: Asia/Hong_Kong", "timezone: Mars/Base", "timezone"},
 		{"kind: many", "kind: lots", "kind must be one or many"},
@@ -96,6 +100,8 @@ measures:
 		{"  m: {sum: amt}", "  m: {sum: amt}\n  n: {expr: \"n + 1\"}", "expr must refer to other measures"},
 		{"  b: {table: x.b}", "  b: {table: x.b}\n  c: {table: x.c}", "not reachable"},
 		{"root: a", "root: a\nextra: 1", "field extra not found"},
+		{"  m: {sum: amt}\n", "  m: {sum: amt}\ndisplay:\n  x: {label: X}\n", "display x: not a dimension or measure"},
+		{"  m: {sum: amt}\n", "  m: {sum: amt}\ndisplay:\n  m: {format: euros}\n", "display m: format must be"},
 	} {
 		doc := strings.Replace(base, tc.from, tc.to, 1)
 		_, err := Parse([]byte(doc))
