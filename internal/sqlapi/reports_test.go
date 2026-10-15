@@ -88,9 +88,17 @@ func (d directory) Search(_ context.Context, _, company, q string) ([]sdk.Direct
 	return out, nil
 }
 
-// TestReports: create, save with version checks, publish, run as viewers with their own row
-// scope, list, and delete; with the permission rules of reports.go.
-func TestReports(t *testing.T) {
+// rig is the reports API over the dev mart and the compile sidecar, with fake Kiban users:
+// alice holds North and sql_user, bob all regions and sql_user, mallory North only, dan South
+// and dataset_user, erin nothing; carol is in another company. exportRows caps downloads.
+type rig struct {
+	f     *authz.Fake
+	kiban grants
+	mux   *http.ServeMux
+	tick  func() // past the decision cache after a grant changes
+}
+
+func newRig(t *testing.T, exportRows int) *rig {
 	appDB := appdbtest.New(t)
 	mart, err := pgxpool.New(context.Background(), "postgres://hareno_gate:hareno_gate@localhost:55433/mart")
 	if err != nil {
@@ -125,7 +133,7 @@ func TestReports(t *testing.T) {
 			Company: "ALPHA", ID: connID,
 			Exec:       sqlexec.Exec{DB: mart, Role: "hareno_sql", Timeout: 5 * time.Second, MaxRows: 1000},
 			Scope:      map[string][]string{"region": {"North", "South", "West"}},
-			ExportRows: 2, ExportTimeout: 5 * time.Second,
+			ExportRows: exportRows, ExportTimeout: 5 * time.Second,
 		}},
 		Datasets: &Datasets{Compiler: &compiler.Client{URL: compilertest.Sidecar(t)}, ByName: datasets(t, "sales", "customers")},
 		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -160,16 +168,30 @@ func TestReports(t *testing.T) {
 	mux.HandleFunc("POST /api/reports/{id}/shares", h.Share)
 	mux.HandleFunc("DELETE /api/reports/{id}/shares/{member}", h.Unshare)
 
+	return &rig{f, kiban, mux, tick}
+}
+
+// call sends a JSON request as user and decodes the JSON reply.
+func (g *rig) call(t *testing.T, user, method, path string, body any) (int, map[string]any) {
+	t.Helper()
+	b, _ := json.Marshal(body)
+	r := httptest.NewRequest(method, path, bytes.NewReader(b))
+	r.Header.Set("Authorization", "Bearer "+user)
+	w := httptest.NewRecorder()
+	g.mux.ServeHTTP(w, r)
+	var out map[string]any
+	json.Unmarshal(w.Body.Bytes(), &out)
+	return w.Code, out
+}
+
+// TestReports: create, save with version checks, publish, run as viewers with their own row
+// scope, list, and delete; with the permission rules of reports.go.
+func TestReports(t *testing.T) {
+	g := newRig(t, 2)
+	f, kiban, mux, tick := g.f, g.kiban, g.mux, g.tick
 	call := func(user, method, path string, body any) (int, map[string]any) {
 		t.Helper()
-		b, _ := json.Marshal(body)
-		r := httptest.NewRequest(method, path, bytes.NewReader(b))
-		r.Header.Set("Authorization", "Bearer "+user)
-		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, r)
-		var out map[string]any
-		json.Unmarshal(w.Body.Bytes(), &out)
-		return w.Code, out
+		return g.call(t, user, method, path, body)
 	}
 	expect := func(what string, got, want int, body map[string]any) {
 		t.Helper()
