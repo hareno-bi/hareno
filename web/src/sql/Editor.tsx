@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
 import { aggs, blank, fit, fitMatrix, isNum, kinds, type Agg, type Dash, type Kind, type MatrixSpec, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
@@ -224,7 +224,6 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           <option value="">Add an example tile…</option>
           {examples.map((x, i) => <option key={i} value={i}>{x.title}</option>)}
         </select>
-        <span className="muted">Ctrl+Enter in a query runs that tile</span>
       </div>
       <fieldset className="toolbar filter-pick">
         <legend>Filter bar</legend>
@@ -236,7 +235,6 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
             {' '}{c}
           </label>
         ))}
-        <span className="muted">A filter narrows every tile that has that column. Viewers can also click a chart to filter.</span>
       </fieldset>
       {error && <div className="card sql-error" role="alert">{error}</div>}
       <div className="grid dash-grid">
@@ -266,20 +264,14 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
       run()
     }
   }
+  const show = (s: Show) => update({ show: s, matrix: s === 'matrix' && t.result ? fitMatrix(t.matrix, t.result) : t.matrix })
+  // The tile reads top to bottom: its query, how its result is shown, and the result.
   return (
     <section className={'card tile' + (t.wide ? ' wide' : '')} aria-label={name}>
       <header>
         <input className="tile-title" aria-label="Tile title" placeholder="Untitled tile" value={t.title} maxLength={200}
           onChange={(e) => update({ title: e.target.value })} />
         <span className="tile-tools">
-          <select aria-label={`Show ${name} as`} value={t.show} onChange={(e) => {
-            const show = e.target.value as Show
-            update({ show, matrix: show === 'matrix' && t.result ? fitMatrix(t.matrix, t.result) : t.matrix })
-          }}>
-            <option value="chart">Chart</option>
-            <option value="table">Table</option>
-            <option value="matrix">Matrix</option>
-          </select>
           <select aria-label={`Width of ${name}`} value={t.wide ? 'wide' : 'half'} onChange={(e) => update({ wide: e.target.value === 'wide' })}>
             <option value="half">Half width</option>
             <option value="wide">Full width</option>
@@ -290,18 +282,29 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
         </span>
       </header>
       <details open={t.open} onToggle={(e) => update({ open: (e.target as HTMLDetailsElement).open })}>
-        <summary>Query{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
+        <summary>SQL{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
         <textarea className="sql-input" aria-label={`SQL for ${name}`} spellCheck={false} value={t.sql} placeholder="SELECT …"
           onChange={(e) => update({ sql: e.target.value })} onKeyDown={onKey} />
         <div className="toolbar">
-          <button className="primary" onClick={run} disabled={t.running || !t.sql.trim()}>{t.running ? 'Running…' : 'Run'}</button>
-          {t.result && t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
-          {t.result && t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} setSpec={(matrix) => update({ matrix })} />}
+          <button className="primary" onClick={run} disabled={t.running || !t.sql.trim()} title="Ctrl+Enter">{t.running ? 'Running…' : 'Run'}</button>
         </div>
       </details>
       {t.error && <div className="sql-error" role="alert">{t.error}</div>}
+      {t.result && (
+        <div className="shape">
+          <Field label="Show as">
+            <span className="seg">
+              {(['chart', 'table', 'matrix'] as Show[]).map((s) => (
+                <button key={s} aria-pressed={t.show === s} onClick={() => show(s)}>{{ chart: 'Chart', table: 'Table', matrix: 'Matrix' }[s]}</button>
+              ))}
+            </span>
+          </Field>
+          {t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
+          {t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} setSpec={(matrix) => update({ matrix })} />}
+        </div>
+      )}
       {t.result && t.show === 'matrix'
-        ? pivot.error ? <div className="sql-error" role="alert">{pivot.error}</div>
+        ? pivot.error ? <div className="state">{pivot.error}</div>
           : pivot.result ? <TileOutput result={pivot.result} spec={null} show="matrix" matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
           : <div className="state loading">Totalling…</div>
         : t.result
@@ -311,38 +314,49 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
   )
 }
 
+// A field: its name over its control(s).
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="field" role="group" aria-label={label}><span className="field-label">{label}</span><div className="field-controls">{children}</div></div>
+}
+
 function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpec: (s: Spec) => void }) {
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
-  const single = spec.kind === 'pie' || spec.split !== '' // one value column: slices, or one series per split value
+  const pie = spec.kind === 'pie'
+  const single = pie || spec.split !== '' // one value column: slices, or one series per split value
   return (
     <div className="builder">
-      <label>Type <select value={spec.kind} onChange={(e) => {
-        const kind = e.target.value as Kind
-        set({ kind, ys: kind === 'pie' ? spec.ys.slice(0, 1) : spec.ys, split: kind === 'pie' ? '' : spec.split })
-      }}>
-        {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
-      </select></label>
-      <label>{spec.kind === 'pie' ? 'Slices' : 'X'} <select value={spec.x} onChange={(e) => set({ x: e.target.value })}>
-        {result.columns.map((c) => <option key={c}>{c}</option>)}
-      </select></label>
-      <fieldset>
-        <legend>{spec.kind === 'pie' ? 'Value' : 'Y'}</legend>
+      <Field label="Type">
+        <select aria-label="Chart type" value={spec.kind} onChange={(e) => {
+          const kind = e.target.value as Kind
+          set({ kind, ys: kind === 'pie' ? spec.ys.slice(0, 1) : spec.ys, split: kind === 'pie' ? '' : spec.split })
+        }}>
+          {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
+        </select>
+      </Field>
+      <Field label={pie ? 'Slices' : 'Categories'}>
+        <select aria-label={pie ? 'Slices' : 'Categories'} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
+          {result.columns.map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+      <Field label={single ? 'Value' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
-          <label key={c}>
+          <label key={c} className="pick">
             <input type={single ? 'radio' : 'checkbox'} name={group} checked={spec.ys.includes(c)}
               onChange={(e) => set({ ys: single ? [c] : e.target.checked ? [...spec.ys, c] : spec.ys.filter((y) => y !== c) })} />
-            {' '}{c}
+            {c}
           </label>
         ))}
-      </fieldset>
-      {spec.kind !== 'pie' && (
-        <label>Series by <select value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
-          <option value="">(none)</option>
-          {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c}>{c}</option>)}
-        </select></label>
+      </Field>
+      {!pie && (
+        <Field label="Series by">
+          <select aria-label="Series by" value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
+            <option value="">(none)</option>
+            {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </Field>
       )}
     </div>
   )
@@ -364,44 +378,52 @@ function usePivot(t: Edit, connection: string, onSignedOut: () => void) {
     return () => { current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reruns with the tile's result, not as its SQL is typed
   }, [spec, t.result, connection])
-  return spec ? out : { error: 'Pick at least one row column and one value.' }
+  return spec ? out : { error: 'Choose at least one value.' }
 }
 
 function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: MatrixSpec; setSpec: (m: MatrixSpec) => void }) {
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<MatrixSpec>) => setSpec({ ...spec, ...p })
-  // rows: up to three, in order; a column used for rows is not offered for columns
-  const slots = [...spec.rows, ''].slice(0, 3)
-  const setRow = (i: number, c: string) => {
-    const rows = [...spec.rows]
-    if (c) rows[i] = c
-    else rows.splice(i)
-    set({ rows: rows.filter((r, j) => rows.indexOf(r) === j), cols: spec.cols.filter((x) => x !== c) })
-  }
+  const used = [...spec.rows, ...spec.cols]
+  const free = (keep?: string) => result.columns.filter((c) => c === keep || !used.includes(c))
+  // a column moved to rows or columns stops being a value
+  const place = (rows: string[], cols: string[]) => set({ rows, cols, values: spec.values.filter((v) => !rows.includes(v.column) && !cols.includes(v.column)) })
   const value = (c: string) => spec.values.find((v) => v.column === c)
   return (
     <div className="builder">
-      {slots.map((r, i) => (
-        <label key={i}>{i === 0 ? 'Rows' : 'then'} <select value={r} onChange={(e) => setRow(i, e.target.value)}>
-          {i > 0 && <option value="">(none)</option>}
-          {result.columns.filter((c) => c === r || !spec.rows.includes(c)).map((c) => <option key={c}>{c}</option>)}
-        </select></label>
-      ))}
-      <label>Columns <select value={spec.cols[0] ?? ''} onChange={(e) => set({ cols: e.target.value ? [e.target.value] : [] })}>
-        <option value="">(none)</option>
-        {result.columns.filter((c) => !spec.rows.includes(c)).map((c) => <option key={c}>{c}</option>)}
-      </select></label>
-      <fieldset>
-        <legend>Values</legend>
-        {result.columns.filter((c) => !spec.rows.includes(c) && !spec.cols.includes(c)).map((c) => {
+      <Field label="Rows">
+        {spec.rows.map((r, i) => (
+          <span key={i} className="level">
+            {i > 0 && <span className="muted" aria-hidden>›</span>}
+            <select aria-label={`Row level ${i + 1}`} value={r} onChange={(e) => place(spec.rows.map((x, j) => (j === i ? e.target.value : x)), spec.cols)}>
+              {free(r).map((c) => <option key={c}>{c}</option>)}
+            </select>
+            {spec.rows.length > 1 && <button className="x" aria-label={`Remove row level ${r}`} title="Remove" onClick={() => place(spec.rows.filter((_, j) => j !== i), spec.cols)}>×</button>}
+          </span>
+        ))}
+        {spec.rows.length < 3 && free().length > 0 && (
+          <select aria-label="Add a row level" className="add" value="" onChange={(e) => place([...spec.rows, e.target.value], spec.cols)}>
+            <option value="">+ Level</option>
+            {free().map((c) => <option key={c}>{c}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Columns">
+        <select aria-label="Columns" value={spec.cols[0] ?? ''} onChange={(e) => place(spec.rows, e.target.value ? [e.target.value] : [])}>
+          <option value="">(none)</option>
+          {free(spec.cols[0]).map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+      <Field label="Values">
+        {result.columns.filter((c) => !used.includes(c)).map((c) => {
           const v = value(c)
           const options = (nums.includes(c) ? Object.keys(aggs) : ['count', 'min', 'max']) as Agg[]
           return (
-            <span key={c}>
+            <span key={c} className={'pick' + (v ? ' on' : '')}>
               <label>
                 <input type="checkbox" checked={!!v} disabled={!v && spec.values.length >= 6}
                   onChange={(e) => set({ values: e.target.checked ? [...spec.values, { column: c, agg: options[0] }] : spec.values.filter((x) => x.column !== c) })} />
-                {' '}{c}
+                {c}
               </label>
               {v && (
                 <select aria-label={`How to total ${c}`} value={v.agg}
@@ -412,7 +434,7 @@ function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: Matrix
             </span>
           )
         })}
-      </fieldset>
+      </Field>
     </div>
   )
 }
