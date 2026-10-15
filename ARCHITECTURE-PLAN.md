@@ -377,6 +377,11 @@ The following reflects the team's supplied response, not independently verified 
    - **Linked charts:** clicking a bar, point, slice or anywhere in a category's band filters every tile by that value of the chart's X column; clicking it again clears it.
    - **Editors** choose which columns the filter bar offers. Filters are kept through the 5-second refresh, apply to CSV downloads, and are part of the results cache key.
    - **Limits:** a filter applies to what a tile shows, so a tile limited to its top 10 is filtered after the limit; values compare as text, so time columns are not offered as choices. Typed filters on the underlying data come with the semantic model (P2-09).
+20. **Matrix tile (P2-08, 2026-10-15):**
+   - **What:** a tile's rows grouped by up to three row columns and one column column, with one to six values, each a sum, average, minimum, maximum or count. Every row group and the column get a subtotal, and there is a grand total.
+   - **Totals in the database:** the tile's query is wrapped in `GROUP BY ROLLUP(<rows>), ROLLUP(<column>)` and run under the viewer's row policy, so an average or a count is right at every level (not an average of averages) and a total never includes rows the viewer may not see. `GROUPING()` marks total rows, so a total is not confused with a NULL value. On SQL dashboards this replaces the Malloy `all()` route of P2-01; the semantic model (P2-09) can feed the same layout.
+   - **Filters** narrow the tile's query before the totals; clicking a row or column value filters the dashboard by it. A CSV download holds the rows the matrix totals, not the laid-out grid.
+   - **Limits:** one column column, no collapsing groups, and every row in the page (no virtualization); the full matrix (hierarchical columns, conditional formatting, keyboard grid) is Phase 3.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 

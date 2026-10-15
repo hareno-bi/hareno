@@ -165,3 +165,7 @@ dialog.share h3 { margin-top: 14px; }
 .filter-pick { flex-wrap: wrap; gap: 6px 14px; border: 1px solid var(--grid); border-radius: 6px; padding: 6px 10px; margin: 0 0 12px; }
 .filter-pick legend { padding: 0 4px; color: var(--muted); }
 .unfiltered { font-size: 12px; margin: 0 0 6px; }
+.pivot .m-cell .link { border: 0; background: none; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+.pivot .m-cell .link:hover { color: var(--accent); }
+.pivot .m-row { position: static; }
+.tile .pivot { height: auto; max-height: 420px; }

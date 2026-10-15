@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -376,6 +377,56 @@ func TestReports(t *testing.T) {
 	}
 	st, _, _ = download("bob", 0, `{"region_name":"West"}`)
 	expect("download with a bad filter", st, 400, nil)
+
+	// A matrix tile: the database totals the tile's rows, after filters, at every level.
+	const sales = "SELECT * FROM (VALUES ('North', 'A', 1), ('North', 'B', 2), ('South', 'A', 4), ('South', NULL, 8)) AS v(region_name, cat, n)"
+	mtile := map[string]any{"title": "", "sql": sales, "chart": nil, "show": "matrix", "wide": true,
+		"matrix": map[string]any{"rows": []string{"region_name"}, "cols": []string{"cat"}, "values": []any{map[string]any{"column": "n", "agg": "sum"}}}}
+	st, b = call("bob", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": map[string]any{"title": "Matrix", "tiles": []any{mtile}}})
+	expect("create a matrix", st, 201, b)
+	mpath := "/api/reports/" + b["id"].(string)
+	st, b = call("bob", "POST", mpath+"/publish", map[string]any{"version": 1})
+	expect("publish a matrix", st, 200, b)
+	b = func() map[string]any {
+		st, b := call("bob", "POST", mpath+"/run", nil)
+		expect("run a matrix", st, 200, b)
+		return b
+	}()
+	if c, _ := json.Marshal(b["tiles"].([]any)[0].(map[string]any)["columns"]); string(c) != `["hareno_level","region_name","cat","n (sum)"]` {
+		t.Errorf("matrix columns: %s", c)
+	}
+	// level 1: all categories; 2: all regions; 3: both. A NULL category (level 0) is not a total.
+	want := `[[0,"North","A",1],[0,"North","B",2],[0,"South","A",4],[0,"South",null,8],[1,"North",null,3],[1,"South",null,12],` +
+		`[2,null,"A",5],[2,null,"B",2],[2,null,null,8],[3,null,null,15]]`
+	sorted := func(b map[string]any) string {
+		rs := b["tiles"].([]any)[0].(map[string]any)["rows"].([]any)
+		slices.SortFunc(rs, func(x, y any) int {
+			a, _ := json.Marshal(x)
+			c, _ := json.Marshal(y)
+			return strings.Compare(string(a), string(c))
+		})
+		out, _ := json.Marshal(rs)
+		return string(out)
+	}
+	if got := sorted(b); got != want {
+		t.Errorf("matrix rows:\n got %s\nwant %s", got, want)
+	}
+	st, b = call("bob", "POST", mpath+"/run", map[string]any{"filters": map[string][]string{"region_name": {"South"}}})
+	if got := sorted(b); got != `[[0,"South","A",4],[0,"South",null,8],[1,"South",null,12],[2,null,"A",4],[2,null,null,8],[3,null,null,12]]` {
+		t.Errorf("matrix filtered to South: %s", got)
+	}
+	for name, m := range map[string]any{
+		"no rows":        map[string]any{"rows": []string{}, "values": []any{map[string]any{"column": "n", "agg": "sum"}}},
+		"bad aggregate":  map[string]any{"rows": []string{"region_name"}, "values": []any{map[string]any{"column": "n", "agg": "median"}}},
+		"column twice":   map[string]any{"rows": []string{"cat"}, "cols": []string{"cat"}, "values": []any{map[string]any{"column": "n", "agg": "sum"}}},
+		"missing matrix": nil,
+	} {
+		mtile["matrix"] = m
+		st, b = call("bob", "PUT", mpath, map[string]any{"draft": map[string]any{"title": "Matrix", "tiles": []any{mtile}}, "version": 1})
+		expect("save a matrix with "+name, st, 400, b)
+	}
+	st, b = call("bob", "DELETE", mpath, nil)
+	expect("delete the matrix", st, 204, b)
 
 	f.Revoke("c-alpha", "connection", "mart", "exporter", "bob")
 	st, _, _ = download("bob", 0) // no tick: a revoked exporter stops the next download

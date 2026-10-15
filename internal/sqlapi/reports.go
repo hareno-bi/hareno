@@ -46,11 +46,12 @@ type Draft struct {
 
 // Tile is one query on a dashboard and how it is shown.
 type Tile struct {
-	Title string          `json:"title"`
-	SQL   string          `json:"sql"`
-	Chart json.RawMessage `json:"chart"` // the editor's chart settings, kept as given
-	Show  string          `json:"show"`  // "chart" or "table"
-	Wide  bool            `json:"wide"`  // the dashboard's full width, or half
+	Title  string          `json:"title"`
+	SQL    string          `json:"sql"`
+	Chart  json.RawMessage `json:"chart"`            // the editor's chart settings, kept as given
+	Show   string          `json:"show"`             // "chart", "table" or "matrix"
+	Wide   bool            `json:"wide"`             // the dashboard's full width, or half
+	Matrix *Matrix         `json:"matrix,omitempty"` // with show "matrix" only (matrix.go)
 }
 
 const maxTiles = 24
@@ -65,8 +66,9 @@ func (d Draft) valid() bool {
 		}
 	}
 	for _, t := range d.Tiles {
-		if t.SQL == "" || len(t.Title) > 200 || len(t.Chart) > 16<<10 || (t.Show != "chart" && t.Show != "table") ||
-			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") {
+		if t.SQL == "" || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
+			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") ||
+			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid()) {
 			return false
 		}
 	}
@@ -465,19 +467,25 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	// Each tile unfiltered first: its columns say which filters apply, and its values are the
-	// filter bar's choices. Both runs are cached.
+	// filter bar's choices. Then as shown: filtered, and a matrix totalled. All runs are cached.
 	all := make([]tileResult, len(body.Tiles))
 	tiles := make([]tileResult, len(body.Tiles))
 	for i, t := range body.Tiles {
-		all[i], tiles[i] = get(t.SQL), get(t.SQL)
+		all[i] = get(t.SQL)
 		if all[i].response == nil {
+			tiles[i] = all[i]
 			continue
 		}
-		if on := req.Filters.on(all[i].Columns); len(on) > 0 {
-			sql, args := req.Filters.wrap(t.SQL, on)
-			tiles[i] = get(sql, args...)
-			tiles[i].Filtered = on
+		sql, args := t.SQL, []any(nil)
+		on := req.Filters.on(all[i].Columns)
+		if len(on) > 0 {
+			sql, args = req.Filters.wrap(sql, on)
 		}
+		if t.Matrix != nil {
+			sql = t.Matrix.wrap(sql)
+		}
+		tiles[i] = get(sql, args...)
+		tiles[i].Filtered = on
 	}
 	cols := slices.Clone(body.Filters)
 	for c := range req.Filters {

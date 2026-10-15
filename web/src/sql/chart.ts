@@ -104,7 +104,29 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
 
 
 // A dashboard (a saved report): tiles, each a query and how it is shown, half or full width.
-export type Show = 'chart' | 'table'
-export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean }
+export type Show = 'chart' | 'table' | 'matrix'
+export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean; matrix?: MatrixSpec }
+
+// A matrix tile: rows grouped by up to three columns and across by one, each value aggregated.
+// The server totals them (internal/sqlapi/matrix.go).
+export const aggs = { sum: 'Sum', avg: 'Average', min: 'Min', max: 'Max', count: 'Count' } as const
+export type Agg = keyof typeof aggs
+export type MatrixSpec = { rows: string[]; cols: string[]; values: { column: string; agg: Agg }[] }
+
+// fitMatrix keeps the matrix choices that still apply to a new result: rows default to the first
+// text column, the value to the sum of the first number column.
+export function fitMatrix(m: MatrixSpec | undefined, r: Result): MatrixSpec {
+  const has = (c: string) => r.columns.includes(c)
+  const rows = (m?.rows ?? []).filter(has)
+  const cols = (m?.cols ?? []).filter((c) => has(c) && !rows.includes(c))
+  const values = (m?.values ?? []).filter((v) => has(v.column))
+  const text = r.columns.find((_, i) => !isNum(r, i)) ?? r.columns[0]
+  const num = r.columns.find((c, i) => isNum(r, i) && c !== text)
+  return {
+    rows: rows.length || !text ? rows : [text],
+    cols,
+    values: values.length || !num ? values : [{ column: num, agg: 'sum' }],
+  }
+}
 export type Dash = { title: string; tiles: TileDef[]; filters?: string[] } // filters: the columns the filter bar offers
 export const blank: Spec = { kind: 'bar', x: '', ys: [], split: '' }
