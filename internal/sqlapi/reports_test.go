@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -21,6 +24,9 @@ import (
 	"github.com/hareno-bi/hareno/internal/appdb"
 	"github.com/hareno-bi/hareno/internal/appdb/appdbtest"
 	"github.com/hareno-bi/hareno/internal/authz"
+	"github.com/hareno-bi/hareno/internal/compiler"
+	"github.com/hareno-bi/hareno/internal/compiler/compilertest"
+	"github.com/hareno-bi/hareno/internal/model"
 	"github.com/hareno-bi/hareno/internal/sqlexec"
 )
 
@@ -98,7 +104,7 @@ func TestReports(t *testing.T) {
 
 	alpha := []sdk.Company{{ID: "c-alpha", Code: "ALPHA", IsActive: true}}
 	f := &authz.Fake{Companies: map[string][]sdk.Company{
-		"alice": alpha, "bob": alpha, "mallory": alpha, "erin": alpha, "carol": {{ID: "c-beta", Code: "BETA", IsActive: true}},
+		"alice": alpha, "bob": alpha, "mallory": alpha, "erin": alpha, "dan": alpha, "carol": {{ID: "c-beta", Code: "BETA", IsActive: true}},
 	}}
 	f.Grant("c-alpha", "connection", "mart", "sql_user", "alice")
 	f.Grant("c-alpha", "connection", "mart", "sql_user", "bob")
@@ -106,6 +112,8 @@ func TestReports(t *testing.T) {
 	f.Grant("c-alpha", "data_scope", "mart.region.*", "viewer", "bob")
 	f.Grant("c-alpha", "data_scope", "mart.region.North", "viewer", "mallory")
 	f.Grant("c-alpha", "connection", "mart", "data_sharer", "alice") // erin has no access of her own
+	f.Grant("c-alpha", "connection", "mart", "dataset_user", "dan")  // dan builds from datasets, without SQL
+	f.Grant("c-alpha", "data_scope", "mart.region.South", "viewer", "dan")
 
 	kiban := grants{f, map[string]string{"m-alice": "alice", "m-bob": "bob", "m-mallory": "mallory", "m-erin": "erin", "m-carol": "carol"}}
 	now := time.Now()
@@ -119,10 +127,11 @@ func TestReports(t *testing.T) {
 			Scope:      map[string][]string{"region": {"North", "South", "West"}},
 			ExportRows: 2, ExportTimeout: 5 * time.Second,
 		}},
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DB:      appDB,
-		Grants:  kiban,
-		Members: kiban,
+		Datasets: &Datasets{Compiler: &compiler.Client{URL: compilertest.Sidecar(t)}, ByName: datasets(t, "sales", "customers")},
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DB:       appDB,
+		Grants:   kiban,
+		Members:  kiban,
 		People: directory{
 			"c-alpha": {
 				{ID: "m-alice", DisplayName: "alice", Kind: "person", HasLinkedUser: true},
@@ -136,6 +145,8 @@ func TestReports(t *testing.T) {
 		},
 	}
 	mux := http.NewServeMux()
+	mux.Handle("POST /api/sql", h)
+	mux.HandleFunc("GET /api/datasets", h.ListDatasets)
 	mux.HandleFunc("GET /api/reports", h.ListReports)
 	mux.HandleFunc("POST /api/reports", h.CreateReport)
 	mux.HandleFunc("GET /api/reports/{id}", h.GetReport)
@@ -428,6 +439,80 @@ func TestReports(t *testing.T) {
 	st, b = call("bob", "DELETE", mpath, nil)
 	expect("delete the matrix", st, 204, b)
 
+	// Dataset tiles: dan builds from the sales dataset without SQL rights, and sees South only.
+	st, b = call("dan", "GET", "/api/datasets", nil)
+	if d, _ := json.Marshal(b["datasets"]); !strings.Contains(string(d), `"name":"sales"`) || !strings.Contains(string(d), `"measures":["aov","avg_shipping","cost"`) {
+		t.Errorf("dan's datasets: %s", d)
+	}
+	if st, b = call("mallory", "GET", "/api/datasets", nil); fmt.Sprint(b["datasets"]) != "[]" {
+		t.Errorf("mallory's datasets: %v", b)
+	}
+	byRegion := map[string]any{"dataset": "sales", "dimensions": []string{"region_name"}, "measures": []string{"revenue", "order_count"}}
+	dtile := map[string]any{"title": "", "sql": "", "chart": nil, "show": "table", "wide": true, "dataset": byRegion}
+	st, b = call("dan", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": draft("SQL", regions)})
+	expect("dan creates a SQL tile", st, 403, b)
+	st, b = call("dan", "POST", "/api/reports", map[string]any{"connection": "mart", "draft": map[string]any{"title": "Sales", "tiles": []any{dtile}}})
+	expect("dan creates a dataset tile", st, 201, b)
+	dpath := "/api/reports/" + b["id"].(string)
+	st, b = call("dan", "POST", dpath+"/publish", map[string]any{"version": 1})
+	expect("dan publishes", st, 200, b)
+	st, b = call("dan", "POST", dpath+"/run", nil)
+	if got := tile(b, 0); got != `[["South",175.5,2]] <nil><nil>` {
+		t.Errorf("dan's sales by region: %s", got)
+	}
+	if c, _ := json.Marshal(b["tiles"].([]any)[0].(map[string]any)["columns"]); string(c) != `["region_name","revenue","order_count"]` {
+		t.Errorf("dataset tile columns: %s", c)
+	}
+	st, b = call("dan", "PUT", dpath, map[string]any{"draft": draft("SQL", regions), "version": 1})
+	expect("dan adds SQL", st, 403, b)
+	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "dataset": byRegion,
+		"matrix": map[string]any{"rows": []string{"region_name"}, "values": []any{map[string]any{"column": "revenue", "agg": "sum"}}}})
+	expect("a dataset matrix value with an aggregate", st, 400, b)
+	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "dataset": byRegion,
+		"matrix": map[string]any{"rows": []string{"region_name"}, "values": []any{map[string]any{"column": "revenue", "agg": ""}}}})
+	expect("dan previews a matrix of a dataset tile", st, 200, b)
+	if r, _ := json.Marshal(b["rows"]); string(r) != `[[0,"South",175.5],[1,null,175.5]]` {
+		t.Errorf("dan's preview: %s", r)
+	}
+	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "sql": regions})
+	expect("dan previews SQL", st, 403, b)
+	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "dataset": map[string]any{"dataset": "sales", "dimensions": []string{"category"}, "measures": []string{"shipping"}}})
+	if st != 400 || !strings.Contains(fmt.Sprint(b["error"]), "grain") {
+		t.Errorf("shipping by category: %d %v", st, b)
+	}
+	// bob, with all regions, sees every region through dan's report once shared, and filters it.
+	st, b = call("dan", "POST", dpath+"/shares", map[string]any{"member": "m-bob", "name": "bob", "relation": "viewer"})
+	expect("dan shares with bob", st, 200, b)
+	tick()
+	b = func() map[string]any {
+		st, b := call("bob", "POST", dpath+"/run", nil)
+		expect("bob runs dan's report", st, 200, b)
+		return b
+	}()
+	if got := tile(b, 0); got != `[["North",238.5,3],["South",175.5,2],["West",173.75,2]] <nil><nil>` {
+		t.Errorf("bob's sales by region: %s", got)
+	}
+	st, b = call("bob", "POST", dpath+"/run", map[string]any{"filters": map[string][]string{"region_name": {"West"}}})
+	if got := tile(b, 0); got != `[["West",173.75,2]] [region_name]<nil>` {
+		t.Errorf("bob filtered to West: %s", got)
+	}
+	// A ratio's total is computed again at each level (profit / revenue), not added up or averaged.
+	margin := map[string]any{"dataset": "sales", "dimensions": []string{"region_name"}, "measures": []string{"profit", "revenue", "margin_pct"}}
+	st, b = call("bob", "POST", "/api/sql", map[string]any{"connection": "mart", "dataset": margin,
+		"matrix": map[string]any{"rows": []string{"region_name"}, "values": []any{map[string]any{"column": "profit", "agg": ""}, map[string]any{"column": "revenue", "agg": ""}, map[string]any{"column": "margin_pct", "agg": ""}}}})
+	expect("bob previews margin", st, 200, b)
+	rs := b["rows"].([]any)
+	total := rs[len(rs)-1].([]any)
+	if p, r, m := total[2].(float64), total[3].(float64), total[4].(float64); total[0] != 1.0 || math.Abs(m-p/r) > 1e-9 {
+		t.Errorf("margin total %v, want profit / revenue = %v", total, p/r)
+	}
+	st, b = call("bob", "POST", dpath+"/run", map[string]any{"filters": map[string][]string{"region_name": {"O'Brien \\ x"}}})
+	if got := tile(b, 0); got != `[] [region_name]<nil>` {
+		t.Errorf("a quote in a dataset filter: %s", got)
+	}
+	st, b = call("dan", "DELETE", dpath, nil)
+	expect("dan deletes", st, 204, b)
+
 	f.Revoke("c-alpha", "connection", "mart", "exporter", "bob")
 	st, _, _ = download("bob", 0) // no tick: a revoked exporter stops the next download
 	expect("download after exporter is revoked", st, 403, nil)
@@ -526,4 +611,21 @@ func TestReports(t *testing.T) {
 			t.Errorf("grant left after delete: %s", k)
 		}
 	}
+}
+
+// datasets parses the dev mart's dataset documents by file name.
+func datasets(t *testing.T, files ...string) map[string]*model.Dataset {
+	out := map[string]*model.Dataset{}
+	for _, f := range files {
+		b, err := os.ReadFile(filepath.Join(compilertest.Root(), "dev", "mart", "datasets", f+".yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		d, err := model.Parse(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[d.Name] = d
+	}
+	return out
 }

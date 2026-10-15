@@ -35,7 +35,9 @@ type MatrixValue struct {
 
 var aggs = []string{"sum", "avg", "min", "max", "count"}
 
-func (m *Matrix) valid() bool {
+// valid checks the matrix's shape. On a dataset tile (measures), values are measures, which the
+// dataset totals itself (datasets.go), so they take no aggregate; on a SQL tile each needs one.
+func (m *Matrix) valid(measures bool) bool {
 	if len(m.Rows) == 0 || len(m.Rows) > 3 || len(m.Cols) > 1 || len(m.Values) == 0 || len(m.Values) > 6 {
 		return false
 	}
@@ -46,7 +48,7 @@ func (m *Matrix) valid() bool {
 		}
 	}
 	for i, v := range m.Values {
-		if !validColumn(v.Column) || !slices.Contains(aggs, v.Agg) || slices.Contains(m.Values[:i], v) {
+		if !validColumn(v.Column) || (measures != (v.Agg == "")) || (v.Agg != "" && !slices.Contains(aggs, v.Agg)) || slices.Contains(m.Values[:i], v) {
 			return false
 		}
 	}

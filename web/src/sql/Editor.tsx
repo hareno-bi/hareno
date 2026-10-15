@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, type Agg, type Dash, type Kind, type MatrixSpec, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, type Agg, type Dash, type Dataset, type Kind, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -21,6 +21,10 @@ GROUP BY 1, 2
 ORDER BY 2, 1`
 
 const newTile = (sql = ''): TileDef => ({ title: '', sql, chart: blank, show: 'chart', wide: false })
+const datasetTile = (d: Dataset): TileDef => ({ ...newTile(), dataset: { dataset: d.name, dimensions: [], measures: [] } })
+const ready = (t: TileDef) => (t.dataset ? t.dataset.dimensions.length + t.dataset.measures.length > 0 : !!t.sql.trim())
+// a field name as people read it: region_name -> Region name
+const label = (n: string) => n.charAt(0).toUpperCase() + n.slice(1).replaceAll('_', ' ')
 const firstTile = (): TileDef => {
   let sql = sample
   try {
@@ -36,7 +40,8 @@ type Edit = TileDef & { key: number; result?: Result; error?: string; running?: 
 let keys = 0
 const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open })
 const saveable = (t: TileDef): TileDef => ({
-  title: t.title, sql: t.sql, show: t.show, wide: t.wide,
+  title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide,
+  ...(t.dataset ? { dataset: { dataset: t.dataset.dataset, dimensions: t.dataset.dimensions, measures: t.dataset.measures } } : {}),
   chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split },
   ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
@@ -48,18 +53,20 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   reportId?: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
 }) {
   const [connections, setConnections] = useState<string[] | null>(null)
+  const [sqlOn, setSqlOn] = useState<string[]>([]) // connections the user may write SQL on
+  const [datasets, setDatasets] = useState<Dataset[] | null>(null)
   const [connection, setConnection] = useState('')
   // the saved report this edits: id, the draft version the server has, its published revision,
   // and the draft as last saved (to show unsaved changes)
   const [id, setId] = useState(reportId)
   const [title, setTitle] = useState('')
   const [filters, setFilters] = useState<string[]>([])
-  const [tiles, setTiles] = useState<Edit[]>(() => (reportId ? [] : [editing(firstTile(), true)]))
+  const [tiles, setTiles] = useState<Edit[]>([])
   const [version, setVersion] = useState(0)
   const [published, setPublished] = useState<number | null>(null)
   const [saved, setSaved] = useState('')
   const [busy, setBusy] = useState(false)
-  const [loaded, setLoaded] = useState(!reportId)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -68,9 +75,24 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       const body = await r.json()
       if (!r.ok) return setError(body.error)
       setConnections(body.connections)
+      setSqlOn(body.sql ?? [])
       setConnection((c) => c || (body.connections[0] ?? ''))
     }, () => setError('Hareno is not reachable.'))
+    fetch('/api/datasets').then(async (r) => {
+      const body = await r.json()
+      setDatasets(r.ok ? body.datasets : [])
+    }, () => setDatasets([]))
   }, [onSignedOut])
+
+  const sqlOk = sqlOn.includes(connection)
+  const mine = (datasets ?? []).filter((d) => d.connection === connection)
+  // A new dashboard starts with one tile: a SQL sample for SQL users, else a dataset tile.
+  useEffect(() => {
+    if (reportId || loaded || !connections || !datasets || !connection) return
+    setTiles([editing(sqlOk || !mine.length ? firstTile() : { ...datasetTile(mine[0]), wide: true }, true)])
+    setLoaded(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when rights and datasets are known
+  }, [connections, datasets, connection])
 
   useEffect(() => {
     if (!reportId) return
@@ -109,8 +131,8 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   })
 
   async function run(t: Edit) {
-    if (!connection || !t.sql.trim()) return
-    if (!id && t.key === tiles[0]?.key) {
+    if (!connection || !ready(t)) return
+    if (!id && !t.dataset && t.key === tiles[0]?.key) {
       try {
         localStorage.setItem('hareno-sql', t.sql)
       } catch {
@@ -120,13 +142,13 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
     update(t.key, { running: true, error: undefined })
     const start = performance.now()
     try {
-      const r = await fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify({ connection, sql: t.sql }) })
+      const r = await fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify(t.dataset ? { connection, dataset: t.dataset } : { connection, sql: t.sql }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (!r.ok) return update(t.key, { running: false, error: body.error ?? `HTTP ${r.status}` })
       setTiles((ts) => ts.map((x) => (x.key === t.key
         ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body),
-            matrix: x.show === 'matrix' ? fitMatrix(x.matrix, body) : x.matrix }
+            matrix: x.show === 'matrix' ? fitMatrix(x.matrix, body, x.dataset?.measures) : x.matrix }
         : x)))
     } catch {
       update(t.key, { running: false, error: 'Hareno is not reachable.' })
@@ -192,7 +214,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   })
 
   if (connections && connections.length === 0) {
-    return <p className="note">You have no connections you may query with SQL. Ask your administrator for access.</p>
+    return <p className="note">You may not build dashboards on any data source. Ask your administrator for access.</p>
   }
   return (
     <div className="sql">
@@ -216,14 +238,14 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           </select>
         </label>
         <button onClick={() => tiles.forEach(run)} disabled={!connection}>Run all</button>
-        <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= 24} onChange={(e) => {
+        {sqlOk && <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= 24} onChange={(e) => {
           const t = editing(examples[Number(e.target.value)])
           setTiles((ts) => [...ts, t])
           run(t)
         }}>
           <option value="">Add an example tile…</option>
           {examples.map((x, i) => <option key={i} value={i}>{x.title}</option>)}
-        </select>
+        </select>}
       </div>
       <fieldset className="toolbar filter-pick">
         <legend>Filter bar</legend>
@@ -240,20 +262,23 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       <div className="grid dash-grid">
         {tiles.map((t, i) => (
           <TileEditor key={t.key} tile={t} first={i === 0} last={i === tiles.length - 1} single={tiles.length === 1}
-            update={(p) => update(t.key, p)} move={(by) => move(t.key, by)} run={() => run(t)}
+            update={(p) => update(t.key, p)} move={(by) => move(t.key, by)} run={(x) => run(x ?? t)} datasets={mine} sqlOk={sqlOk}
             remove={() => setTiles((ts) => ts.filter((x) => x.key !== t.key))} connection={connection} onSignedOut={onSignedOut}
             style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         ))}
-        <button className="add-tile" onClick={() => setTiles((ts) => [...ts, editing(newTile(), true)])} disabled={tiles.length >= 24}>+ Add tile</button>
+        <div className="add-tile">
+          {mine.length > 0 && <button onClick={() => setTiles((ts) => [...ts, editing(datasetTile(mine[0]), true)])} disabled={tiles.length >= 24}>+ Tile from a dataset</button>}
+          {sqlOk && <button onClick={() => setTiles((ts) => [...ts, editing(newTile(), true)])} disabled={tiles.length >= 24}>+ SQL tile</button>}
+        </div>
       </div>
     </div>
   )
 }
 
-function TileEditor({ tile: t, first, last, single, update, move, run, remove, connection, onSignedOut, style, vars, themeKey, fontsReady }: {
+function TileEditor({ tile: t, first, last, single, update, move, run, remove, connection, datasets, sqlOk, onSignedOut, style, vars, themeKey, fontsReady }: {
   tile: Edit; first: boolean; last: boolean; single: boolean
-  update: (p: Partial<Edit>) => void; move: (by: number) => void; run: () => void; remove: () => void
-  connection: string; onSignedOut: () => void
+  update: (p: Partial<Edit>) => void; move: (by: number) => void; run: (t?: Edit) => void; remove: () => void
+  connection: string; datasets: Dataset[]; sqlOk: boolean; onSignedOut: () => void
   style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
 }) {
   const name = t.title || 'Untitled tile'
@@ -264,7 +289,12 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
       run()
     }
   }
-  const show = (s: Show) => update({ show: s, matrix: s === 'matrix' && t.result ? fitMatrix(t.matrix, t.result) : t.matrix })
+  // a dataset tile runs as soon as its picks change
+  const pick = (dataset: Pick) => {
+    update({ dataset })
+    run({ ...t, dataset })
+  }
+  const show = (s: Show) => update({ show: s, matrix: s === 'matrix' && t.result ? fitMatrix(t.matrix, t.result, t.dataset?.measures) : t.matrix })
   // The tile reads top to bottom: its query, how its result is shown, and the result.
   return (
     <section className={'card tile' + (t.wide ? ' wide' : '')} aria-label={name}>
@@ -282,12 +312,16 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
         </span>
       </header>
       <details open={t.open} onToggle={(e) => update({ open: (e.target as HTMLDetailsElement).open })}>
-        <summary>SQL{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
-        <textarea className="sql-input" aria-label={`SQL for ${name}`} spellCheck={false} value={t.sql} placeholder="SELECT …"
-          onChange={(e) => update({ sql: e.target.value })} onKeyDown={onKey} />
-        <div className="toolbar">
-          <button className="primary" onClick={run} disabled={t.running || !t.sql.trim()} title="Ctrl+Enter">{t.running ? 'Running…' : 'Run'}</button>
-        </div>
+        <summary>{t.dataset ? `Data: ${label(t.dataset.dataset)}` : 'SQL'}{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
+        {t.dataset
+          ? <DataPicker pick={t.dataset} datasets={datasets} setPick={pick} />
+          : <>
+            <textarea className="sql-input" aria-label={`SQL for ${name}`} spellCheck={false} value={t.sql} placeholder="SELECT …"
+              onChange={(e) => update({ sql: e.target.value })} onKeyDown={onKey} readOnly={!sqlOk} />
+            {sqlOk && <div className="toolbar">
+              <button className="primary" onClick={() => run()} disabled={t.running || !t.sql.trim()} title="Ctrl+Enter">{t.running ? 'Running…' : 'Run'}</button>
+            </div>}
+          </>}
       </details>
       {t.error && <div className="sql-error" role="alert">{t.error}</div>}
       {t.result && (
@@ -300,7 +334,7 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
             </span>
           </Field>
           {t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
-          {t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} setSpec={(matrix) => update({ matrix })} />}
+          {t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} measures={t.dataset?.measures} setSpec={(matrix) => update({ matrix })} />}
         </div>
       )}
       {t.result && t.show === 'matrix'
@@ -309,7 +343,7 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
           : <div className="state loading">Totalling…</div>
         : t.result
         ? <TileOutput result={t.result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
-        : !t.error && <div className={'state' + (t.running ? ' loading' : '')}>{t.running ? 'Running…' : 'Write a query and run it.'}</div>}
+        : !t.error && <div className={'state' + (t.running ? ' loading' : '')}>{t.running ? 'Running…' : t.dataset ? 'Pick fields or measures.' : 'Write a query and run it.'}</div>}
     </section>
   )
 }
@@ -370,7 +404,8 @@ function usePivot(t: Edit, connection: string, onSignedOut: () => void) {
     if (!spec) return
     let current = true
     setOut({})
-    fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify({ connection, sql: t.sql, matrix: JSON.parse(spec) }) }).then(async (r) => {
+    const source = t.dataset ? { dataset: t.dataset } : { sql: t.sql }
+    fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify({ connection, ...source, matrix: JSON.parse(spec) }) }).then(async (r) => {
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (current) setOut(r.ok ? { result: body } : { error: body.error ?? `HTTP ${r.status}` })
@@ -381,11 +416,12 @@ function usePivot(t: Edit, connection: string, onSignedOut: () => void) {
   return spec ? out : { error: 'Choose at least one value.' }
 }
 
-function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: MatrixSpec; setSpec: (m: MatrixSpec) => void }) {
+// MatrixBuilder: on a dataset tile (measures given), values are the tile's measures as defined.
+function MatrixBuilder({ result, spec, measures, setSpec }: { result: Result; spec: MatrixSpec; measures?: string[]; setSpec: (m: MatrixSpec) => void }) {
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<MatrixSpec>) => setSpec({ ...spec, ...p })
   const used = [...spec.rows, ...spec.cols]
-  const free = (keep?: string) => result.columns.filter((c) => c === keep || !used.includes(c))
+  const free = (keep?: string) => result.columns.filter((c) => !measures?.includes(c) && (c === keep || !used.includes(c)))
   // a column moved to rows or columns stops being a value
   const place = (rows: string[], cols: string[]) => set({ rows, cols, values: spec.values.filter((v) => !rows.includes(v.column) && !cols.includes(v.column)) })
   const value = (c: string) => spec.values.find((v) => v.column === c)
@@ -415,9 +451,9 @@ function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: Matrix
         </select>
       </Field>
       <Field label="Values">
-        {result.columns.filter((c) => !used.includes(c)).map((c) => {
+        {result.columns.filter((c) => !used.includes(c) && (!measures || measures.includes(c))).map((c) => {
           const v = value(c)
-          const options = (nums.includes(c) ? Object.keys(aggs) : ['count', 'min', 'max']) as Agg[]
+          const options = (measures ? [''] : nums.includes(c) ? Object.keys(aggs) : ['count', 'min', 'max']) as (Agg | '')[]
           return (
             <span key={c} className={'pick' + (v ? ' on' : '')}>
               <label>
@@ -425,16 +461,52 @@ function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: Matrix
                   onChange={(e) => set({ values: e.target.checked ? [...spec.values, { column: c, agg: options[0] }] : spec.values.filter((x) => x.column !== c) })} />
                 {c}
               </label>
-              {v && (
+              {v && !measures && (
                 <select aria-label={`How to total ${c}`} value={v.agg}
                   onChange={(e) => set({ values: spec.values.map((x) => (x.column === c ? { ...x, agg: e.target.value as Agg } : x)) })}>
-                  {options.map((a) => <option key={a} value={a}>{aggs[a]}</option>)}
+                  {options.map((a) => <option key={a} value={a}>{a && aggs[a]}</option>)}
                 </select>
               )}
             </span>
           )
         })}
       </Field>
+    </div>
+  )
+}
+
+// DataPicker chooses a dataset tile's dataset, the fields it groups by, and its measures.
+function DataPicker({ pick, datasets, setPick }: { pick: Pick; datasets: Dataset[]; setPick: (p: Pick) => void }) {
+  const d = datasets.find((x) => x.name === pick.dataset)
+  const toggle = (list: string[], n: string, on: boolean) => (on ? [...list, n] : list.filter((x) => x !== n))
+  return (
+    <div className="builder data-pick">
+      <Field label="Dataset">
+        <select aria-label="Dataset" value={pick.dataset} onChange={(e) => setPick({ dataset: e.target.value, dimensions: [], measures: [] })}>
+          {!d && <option value={pick.dataset}>{label(pick.dataset)} (not available)</option>}
+          {datasets.map((x) => <option key={x.name} value={x.name}>{label(x.name)}</option>)}
+        </select>
+      </Field>
+      {d && (
+        <>
+          <Field label="Group by">
+            {d.dimensions.map((n) => (
+              <label key={n} className="pick">
+                <input type="checkbox" checked={pick.dimensions.includes(n)} onChange={(e) => setPick({ ...pick, dimensions: toggle(pick.dimensions, n, e.target.checked) })} />
+                {label(n)}
+              </label>
+            ))}
+          </Field>
+          <Field label="Measures">
+            {d.measures.map((n) => (
+              <label key={n} className="pick">
+                <input type="checkbox" checked={pick.measures.includes(n)} onChange={(e) => setPick({ ...pick, measures: toggle(pick.measures, n, e.target.checked) })} />
+                {label(n)}
+              </label>
+            ))}
+          </Field>
+        </>
+      )}
     </div>
   )
 }

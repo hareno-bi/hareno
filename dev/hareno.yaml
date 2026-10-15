@@ -47,6 +47,18 @@ signin:                            # as the browser reaches them, through the de
         - Tests sharing; sees only what is shared with her
         - Shared by alice with "Sees my data", she sees North
         - "May download CSV, but gets only her own rows: none"
+    - user: frank
+      password: hareno-dev-password
+      company: ALPHA
+      via: "Direct grant"
+      sql: false
+      datasets: true
+      rows: South
+      share_data: false
+      export: false
+      remarks:
+        - Limited rows (South only)
+        - Builds dashboards from datasets, without writing SQL
     - user: carol
       password: hareno-dev-password
       company: BETA
@@ -73,6 +85,12 @@ signin:                            # as the browser reaches them, through the de
       JOIN mart.dim_product p USING (product_id)
       ORDER BY 1, 2, li.line_no
 app_db: postgres://hareno:dev@localhost:55434/hareno
+# Governed datasets: dashboard tiles built by picking fields and measures (P2-09). Start the
+# compile sidecar first: (cd compiler && PORT=55436 node server.ts)
+compiler: http://127.0.0.1:55436
+datasets:
+  - dev/mart/datasets/sales.yaml
+  - dev/mart/datasets/customers.yaml
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

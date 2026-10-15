@@ -92,7 +92,7 @@ func TestEndToEnd(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+user)
 		w := httptest.NewRecorder()
 		h.List(w, r)
-		if got := strings.TrimSpace(w.Body.String()); got != `{"connections":`+want+`}` {
+		if got := strings.TrimSpace(w.Body.String()); got != `{"connections":`+want+`,"sql":`+want+`}` {
 			t.Errorf("%s connections: %s, want %s", user, got, want)
 		}
 	}
