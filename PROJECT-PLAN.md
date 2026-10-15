@@ -52,7 +52,7 @@ The §14 workflow, thin but real and production-shaped:
 6. Row and column policy enforced from Kiban org units/positions.
 7. CSV export through the same policy pipeline.
 
-**Exit:** the whole slice passes the known-answer suite; policies hold on view, preview and export paths; deployable to a development Kubernetes namespace.
+**Exit:** the whole slice passes the known-answer suite; policies hold on view, preview and export paths; deployable to a development Kubernetes namespace. Met 2026-10-15 except the namespace, which the owner moved to Phase 3 (P2-11 below).
 
 ### Phase 2 tasks
 
@@ -72,8 +72,8 @@ In order; each lands as its own PR with its test. "Cond" refers to the condition
 | **B** | **Checkpoint: a published report refreshes for a policy-restricted viewer.** | | |
 | P2-09 | Minimal designer: add, remove and place charts on a grid, pick fields and measures from the dataset, link two charts by a shared filter | step 3 | A report built in the designer publishes and views correctly. Dataset tiles done 2026-10-15 (ARCHITECTURE-PLAN §10.4 item 21): picked fields and measures, mixed with SQL tiles on the grid, filters and linked charts shared; field labels and number formats from the dataset |
 | P2-10 | CSV export through the same policy pipeline, with a fresh decision (no cache) | step 7 | Export of a restricted viewer's report contains only their rows. Done 2026-10-14: per-tile CSV, `exporter` per data source (ARCHITECTURE-PLAN §10.4 item 18) |
-| P2-11 | Development Kubernetes namespace: images, minimal manifests (Helm comes in Phase 4) | exit | The slice runs in the namespace against the dev mart and dev Kiban |
-| P2-12 | Exit suite: known answers end to end; policy tests on view, preview and export | exit | All pass in CI and in the namespace. In CI 2026-10-15 (`internal/sqlapi/exit_test.go`): Q01–Q17 through a published dashboard of dataset and SQL tiles, on view, preview and export, for an all-regions and a North-only viewer; in the namespace with P2-11 |
+| P2-11 | Development Kubernetes namespace: images, minimal manifests (Helm comes in Phase 4) | exit | Moved to Phase 3 by the owner, 2026-10-15 (Deployment workstream) |
+| P2-12 | Exit suite: known answers end to end; policy tests on view, preview and export | exit | All pass in CI and in the namespace. In CI 2026-10-15 (`internal/sqlapi/exit_test.go`): Q01–Q17 through a published dashboard of dataset and SQL tiles, on view, preview and export, for an all-regions and a North-only viewer. The namespace run moved to Phase 3 with P2-11 |
 
 ## Phase 3 — Product depth, milestone 2 (≈16–24 weeks)
 
@@ -87,6 +87,7 @@ Parallel workstreams, each against the capability matrix (§16 item 1), which mu
 | Visualization | Agreed ECharts catalog, shared theme tokens, KPI cards, accessibility alternatives |
 | Matrix | Hierarchical rows/columns, subtotals, conditional formatting, ARIA grid |
 | Governance | Sharing via Kiban, catalog listing, permission semantics (§9), audit events, administration |
+| Deployment | From Phase 2 (P2-11, moved 2026-10-15): images and minimal manifests for a development Kubernetes namespace; the slice runs there against the dev mart and dev Kiban, and the exit suite (P2-12) passes there. Helm and production hardening stay in Phase 4 |
 | Reporting | Durable jobs, schedules, PDF rendering worker, XLSX via excelize, artifact storage, retention |
 
 ### Datasets made and named in Hareno (owner decision 2026-10-15)
