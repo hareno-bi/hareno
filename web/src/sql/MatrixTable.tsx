@@ -1,4 +1,4 @@
-import { aggs, type MatrixSpec, type Result, type Value } from './chart'
+import { aggs, number, caption, type MatrixSpec, type Result, type Value } from './chart'
 
 // MatrixTable lays out a matrix tile's result: one row per row group (its subtotal first, then
 // its members), the grand total last, and a column per column value and value, with a total.
@@ -55,16 +55,19 @@ export default function MatrixTable({ result, spec, onPick }: {
   }
   const rows = [...rowKeys].sort((a, b) => compareKeys(a[1], b[1]))
   const cols: [string, Value][] = [...[...colKeys].sort((a, b) => compare(a[1], b[1])), [TOTAL, null]]
-  const labels = spec.values.map((v) => (v.agg ? `${aggs[v.agg]} of ${v.column}` : v.column))
+  const d = result.display
+  const name = (c: string) => caption(d, c)
+  const labels = spec.values.map((v) => (v.agg ? `${aggs[v.agg]} of ${name(v.column)}` : name(v.column)))
+  const show = spec.values.map((v) => (d?.[v.column] ? (x: Value) => (typeof x === 'number' ? number(d, v.column)(x) : fmt(x)) : fmt))
   const template = `minmax(180px, 1.6fr) repeat(${cols.length * nV}, minmax(96px, 1fr))`
   const minWidth = 180 + cols.length * nV * 96
   const pick = (column: string, v: Value) => onPick && v !== null && (
-    <button className="link" onClick={() => onPick(column, text(v))} title={`Filter by ${column} ${text(v)}`}>{text(v)}</button>
+    <button className="link" onClick={() => onPick(column, text(v))} title={`Filter by ${name(column)} ${text(v)}`}>{text(v)}</button>
   )
-  const corner = spec.rows.join(' / ') + (nC ? `  ·  ${spec.cols[0]} →` : '')
+  const corner = spec.rows.map(name).join(' / ') + (nC ? `  ·  ${name(spec.cols[0])} →` : '')
   if (result.rows.length === 0) return <div className="state empty">The query returned no rows.</div>
   return (
-    <div className="matrix sql-table pivot" role="table" aria-label={`${labels.join(', ')} by ${[...spec.rows, ...spec.cols].join(', ')}`} tabIndex={0}>
+    <div className="matrix sql-table pivot" role="table" aria-label={`${labels.join(', ')} by ${[...spec.rows, ...spec.cols].map(name).join(', ')}`} tabIndex={0}>
       <div className="m-head" role="rowgroup">
         {nC > 0 && (
           <div className="m-row" role="row" style={{ gridTemplateColumns: template, minWidth }}>
@@ -93,7 +96,7 @@ export default function MatrixTable({ result, spec, onPick }: {
               </div>
               {cols.flatMap(([ck]) => {
                 const vs = cells.get(rk + '\u0001' + ck)
-                return spec.values.map((_, i) => <div key={ck + i} role="cell" className="m-cell num">{vs ? fmt(vs[i]) : ''}</div>)
+                return spec.values.map((_, i) => <div key={ck + i} role="cell" className="m-cell num">{vs ? show[i](vs[i]) : ''}</div>)
               })}
             </div>
           )

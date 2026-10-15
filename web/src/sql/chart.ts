@@ -1,10 +1,22 @@
 import type { EChartsCoreOption } from 'echarts/core'
-import { fmtCompact } from '../s3/format'
+import { fmtCompact, fmtPct, fmtWhole, fmtYield } from '../s3/format'
 import { treatment, type Style, type Tokens } from '../s3/theme'
 
 // A query result and the chart settings built on it (SQL editor and saved reports).
 export type Value = string | number | boolean | null
-export type Result = { columns: string[]; rows: Value[][]; truncated: boolean }
+export type Result = { columns: string[]; rows: Value[][]; truncated: boolean; display?: Labels }
+// How a dataset's columns are shown, by column (server: model.Display). SQL tiles have none.
+export type Format = 'number' | 'integer' | 'money' | 'percent'
+export type Labels = Record<string, { label: string; format?: Format }>
+export const caption = (d: Labels | undefined, c: string) => d?.[c]?.label ?? c
+const formats: Record<Format, (v: number) => string> = {
+  number: (v) => v.toLocaleString(undefined, { maximumFractionDigits: 2 }), integer: fmtWhole, money: fmtYield, percent: fmtPct,
+}
+// number shows v as column c's format says, or as before (unformatted) where there is none.
+export const number = (d: Labels | undefined, c: string) => (v: number) => {
+  const f = d?.[c] && formats[d[c].format ?? 'number']
+  return f ? f(v) : v.toLocaleString()
+}
 export const kinds = { bar: 'Column', hbar: 'Bar', line: 'Line', area: 'Area', stacked: 'Stacked column', pie: 'Pie', scatter: 'Scatter' } as const
 export type Kind = keyof typeof kinds
 export type Spec = { kind: Kind; x: string; ys: string[]; split: string }
@@ -35,14 +47,16 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const { token, line, bar, anim, grid, legend } = treatment(style.chart, vars)
   const col = (c: string) => r.columns.indexOf(c)
   const xi = col(s.x), si = s.split ? col(s.split) : -1
-  const fmt = { valueFormatter: (v: number) => (typeof v === 'number' ? v.toLocaleString() : v) }
+  const d = r.display
+  const fmt = (c: string) => ({ valueFormatter: (v: number) => (typeof v === 'number' ? number(d, c)(v) : v) })
+  const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtCompact }
   const add = (m: Map<string, number>, k: string, v: Value) => m.set(k, (m.get(k) ?? 0) + (typeof v === 'number' ? v : 0))
 
   if (s.kind === 'pie') {
     const m = new Map<string, number>()
     r.rows.forEach((row) => add(m, label(row[xi]), row[col(s.ys[0])]))
     return {
-      ...anim, legend: { bottom: 0, type: 'scroll' }, tooltip: { trigger: 'item', ...fmt },
+      ...anim, legend: { bottom: 0, type: 'scroll' }, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
       series: [{
         type: 'pie', radius: style.chart.donutRadius, center: ['50%', '44%'], padAngle: 1,
         itemStyle: { borderRadius: style.chart.barRadius, borderColor: token('--surface'), borderWidth: style.chart.barRadius ? 0 : 1 },
@@ -58,7 +72,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     const x = label(row[xi])
     xs.set(x, row[xi])
     for (const y of s.ys) {
-      const name = si >= 0 ? label(row[si]) : y
+      const name = si >= 0 ? label(row[si]) : caption(d, y)
       if (!series.has(name)) {
         if (series.size >= MAX_SERIES) continue
         series.set(name, new Map())
@@ -71,8 +85,8 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   if (s.kind === 'scatter') {
     return {
       ...anim, grid: { ...grid, bottom: 28, left: 24 }, legend, tooltip: { trigger: 'item' },
-      xAxis: { type: 'value', name: s.x, nameLocation: 'middle', nameGap: 28, scale: true },
-      yAxis: { type: 'value', scale: true, axisLabel: { formatter: fmtCompact } },
+      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true },
+      yAxis: { type: 'value', scale: true, axisLabel },
       series: names.map((n) => ({
         type: 'scatter', name: n, symbolSize: 7, itemStyle: { opacity: 0.8 },
         data: [...series.get(n)!].map(([x, v]) => [xs.get(x), v]),
@@ -83,19 +97,20 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const cats = [...xs.keys()]
   const horizontal = s.kind === 'hbar'
   const catAxis = { type: 'category', data: cats, boundaryGap: s.kind !== 'line' && s.kind !== 'area', inverse: horizontal }
-  const valAxis = { type: 'value', axisLabel: { formatter: fmtCompact } }
+  const valAxis = { type: 'value', axisLabel }
   const rad = style.chart.barRadius
   return {
-    ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt },
+    ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt(s.ys[0]) },
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : valAxis,
     series: names.map((n, i) => {
       const data = cats.map((c) => series.get(n)!.get(c) ?? null)
-      if (s.kind === 'line') return { ...line(i), areaStyle: undefined, name: n, data, connectNulls: true }
-      if (s.kind === 'area') return { ...line(i), areaStyle: line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, connectNulls: true }
+      const tooltip = fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
+      if (s.kind === 'line') return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true }
+      if (s.kind === 'area') return { ...line(i), areaStyle: line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true }
       const stacked = s.kind === 'stacked'
       return {
-        ...bar(i), name: n, data, stack: stacked ? 'total' : undefined,
+        ...bar(i), name: n, data, tooltip, stack: stacked ? 'total' : undefined,
         itemStyle: { ...bar(i).itemStyle, borderRadius: stacked && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },
       }
     }),
@@ -110,7 +125,7 @@ export type TileDef = { title: string; sql: string; chart: Spec | null; show: Sh
 // A dataset tile's picks: the dataset, the fields to group by and the measures (server: datasets.go).
 // Saved instead of SQL; the server writes the query each time the tile runs.
 export type Pick = { dataset: string; dimensions: string[]; measures: string[] }
-export type Dataset = { name: string; connection: string; dimensions: string[]; measures: string[] }
+export type Dataset = { name: string; connection: string; dimensions: string[]; measures: string[]; display: Labels }
 
 // A matrix tile: rows grouped by up to three columns and across by one, each value aggregated.
 // The server totals them (internal/sqlapi/matrix.go).

@@ -267,10 +267,11 @@ func (h *Handler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type dataset struct {
-		Name       string   `json:"name"`
-		Connection string   `json:"connection"`
-		Dimensions []string `json:"dimensions"`
-		Measures   []string `json:"measures"`
+		Name       string                   `json:"name"`
+		Connection string                   `json:"connection"`
+		Dimensions []string                 `json:"dimensions"`
+		Measures   []string                 `json:"measures"`
+		Display    map[string]model.Display `json:"display"`
 	}
 	out := []dataset{}
 	may := map[string]bool{}
@@ -292,7 +293,8 @@ func (h *Handler) ListDatasets(w http.ResponseWriter, r *http.Request) {
 			may[d.Connection] = allowed
 		}
 		if allowed {
-			out = append(out, dataset{Name: d.Name, Connection: d.Connection, Dimensions: sortedNames(d.Dimensions), Measures: sortedNames(d.Measures)})
+			out = append(out, dataset{Name: d.Name, Connection: d.Connection, Dimensions: sortedNames(d.Dimensions), Measures: sortedNames(d.Measures),
+				Display: shown(d, append(sortedNames(d.Dimensions), sortedNames(d.Measures)...))})
 		}
 	}
 	reply(w, map[string]any{"datasets": out})
@@ -327,5 +329,21 @@ func sortedNames[V any](m map[string]V) []string {
 		out = append(out, k)
 	}
 	slices.Sort(out)
+	return out
+}
+
+// display is how a dataset tile's columns are shown; nil for a SQL tile.
+func (h *Handler) display(q *DatasetQuery) map[string]model.Display {
+	if q == nil || h.Datasets == nil || h.Datasets.ByName[q.Dataset] == nil {
+		return nil
+	}
+	return shown(h.Datasets.ByName[q.Dataset], append(slices.Clone(q.Dimensions), q.Measures...))
+}
+
+func shown(d *model.Dataset, names []string) map[string]model.Display {
+	out := make(map[string]model.Display, len(names))
+	for _, n := range names {
+		out[n] = d.Shown(n)
+	}
 	return out
 }

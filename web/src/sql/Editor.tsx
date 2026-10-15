@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, type Agg, type Dash, type Dataset, type Kind, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -118,6 +118,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
 
   const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable), filters }
   // filter bar candidates: the text columns of the tiles' results, and those already chosen
+  const names: Labels = Object.assign({}, ...tiles.map((t) => t.result?.display))
   const columns = [...new Set([...filters, ...tiles.flatMap((t) => t.result?.columns.filter((_, i) => !isNum(t.result!, i)) ?? [])])]
   const dirty = same(draft) !== saved
 
@@ -254,7 +255,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           <label key={c}>
             <input type="checkbox" checked={filters.includes(c)} disabled={!filters.includes(c) && filters.length >= 10}
               onChange={(e) => setFilters((f) => (e.target.checked ? [...f, c] : f.filter((x) => x !== c)))} />
-            {' '}{c}
+            {' '}{caption(names, c)}
           </label>
         ))}
       </fieldset>
@@ -371,7 +372,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
       </Field>
       <Field label={pie ? 'Slices' : 'Categories'}>
         <select aria-label={pie ? 'Slices' : 'Categories'} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
-          {result.columns.map((c) => <option key={c}>{c}</option>)}
+          {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>
       <Field label={single ? 'Value' : 'Values'}>
@@ -380,7 +381,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           <label key={c} className="pick">
             <input type={single ? 'radio' : 'checkbox'} name={group} checked={spec.ys.includes(c)}
               onChange={(e) => set({ ys: single ? [c] : e.target.checked ? [...spec.ys, c] : spec.ys.filter((y) => y !== c) })} />
-            {c}
+            {caption(result.display, c)}
           </label>
         ))}
       </Field>
@@ -388,7 +389,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
         <Field label="Series by">
           <select aria-label="Series by" value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
             <option value="">(none)</option>
-            {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c}>{c}</option>)}
+            {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
           </select>
         </Field>
       )}
@@ -432,22 +433,22 @@ function MatrixBuilder({ result, spec, measures, setSpec }: { result: Result; sp
           <span key={i} className="level">
             {i > 0 && <span className="muted" aria-hidden>›</span>}
             <select aria-label={`Row level ${i + 1}`} value={r} onChange={(e) => place(spec.rows.map((x, j) => (j === i ? e.target.value : x)), spec.cols)}>
-              {free(r).map((c) => <option key={c}>{c}</option>)}
+              {free(r).map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
             </select>
-            {spec.rows.length > 1 && <button className="x" aria-label={`Remove row level ${r}`} title="Remove" onClick={() => place(spec.rows.filter((_, j) => j !== i), spec.cols)}>×</button>}
+            {spec.rows.length > 1 && <button className="x" aria-label={`Remove row level ${caption(result.display, r)}`} title="Remove" onClick={() => place(spec.rows.filter((_, j) => j !== i), spec.cols)}>×</button>}
           </span>
         ))}
         {spec.rows.length < 3 && free().length > 0 && (
           <select aria-label="Add a row level" className="add" value="" onChange={(e) => place([...spec.rows, e.target.value], spec.cols)}>
             <option value="">+ Level</option>
-            {free().map((c) => <option key={c}>{c}</option>)}
+            {free().map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
           </select>
         )}
       </Field>
       <Field label="Columns">
         <select aria-label="Columns" value={spec.cols[0] ?? ''} onChange={(e) => place(spec.rows, e.target.value ? [e.target.value] : [])}>
           <option value="">(none)</option>
-          {free(spec.cols[0]).map((c) => <option key={c}>{c}</option>)}
+          {free(spec.cols[0]).map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>
       <Field label="Values">
@@ -459,7 +460,7 @@ function MatrixBuilder({ result, spec, measures, setSpec }: { result: Result; sp
               <label>
                 <input type="checkbox" checked={!!v} disabled={!v && spec.values.length >= 6}
                   onChange={(e) => set({ values: e.target.checked ? [...spec.values, { column: c, agg: options[0] }] : spec.values.filter((x) => x.column !== c) })} />
-                {c}
+                {caption(result.display, c)}
               </label>
               {v && !measures && (
                 <select aria-label={`How to total ${c}`} value={v.agg}
@@ -479,6 +480,7 @@ function MatrixBuilder({ result, spec, measures, setSpec }: { result: Result; sp
 function DataPicker({ pick, datasets, setPick }: { pick: Pick; datasets: Dataset[]; setPick: (p: Pick) => void }) {
   const d = datasets.find((x) => x.name === pick.dataset)
   const toggle = (list: string[], n: string, on: boolean) => (on ? [...list, n] : list.filter((x) => x !== n))
+  const byName = (ns: string[]) => [...ns].sort((a, b) => caption(d?.display, a).localeCompare(caption(d?.display, b)))
   return (
     <div className="builder data-pick">
       <Field label="Dataset">
@@ -490,18 +492,18 @@ function DataPicker({ pick, datasets, setPick }: { pick: Pick; datasets: Dataset
       {d && (
         <>
           <Field label="Group by">
-            {d.dimensions.map((n) => (
+            {byName(d.dimensions).map((n) => (
               <label key={n} className="pick">
                 <input type="checkbox" checked={pick.dimensions.includes(n)} onChange={(e) => setPick({ ...pick, dimensions: toggle(pick.dimensions, n, e.target.checked) })} />
-                {label(n)}
+                {caption(d.display, n)}
               </label>
             ))}
           </Field>
           <Field label="Measures">
-            {d.measures.map((n) => (
+            {byName(d.measures).map((n) => (
               <label key={n} className="pick">
                 <input type="checkbox" checked={pick.measures.includes(n)} onChange={(e) => setPick({ ...pick, measures: toggle(pick.measures, n, e.target.checked) })} />
-                {label(n)}
+                {caption(d.display, n)}
               </label>
             ))}
           </Field>

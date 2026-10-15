@@ -463,6 +463,9 @@ func TestReports(t *testing.T) {
 	if c, _ := json.Marshal(b["tiles"].([]any)[0].(map[string]any)["columns"]); string(c) != `["region_name","revenue","order_count"]` {
 		t.Errorf("dataset tile columns: %s", c)
 	}
+	if d, _ := json.Marshal(b["tiles"].([]any)[0].(map[string]any)["display"]); string(d) != `{"order_count":{"format":"integer","label":"Orders"},"region_name":{"label":"Region"},"revenue":{"format":"money","label":"Revenue"}}` {
+		t.Errorf("dataset tile display: %s", d)
+	}
 	// Shipping beside lines is a fan-out-safe (symmetric) sum: exact, without the scale of 9
 	// Malloy's version of it leaves (compiler/patches).
 	raw, _ := json.Marshal(map[string]any{"connection": "mart", "dataset": map[string]any{"dataset": "sales", "measures": []string{"shipping", "line_count"}}})
@@ -483,6 +486,9 @@ func TestReports(t *testing.T) {
 	expect("dan previews a matrix of a dataset tile", st, 200, b)
 	if r, _ := json.Marshal(b["rows"]); string(r) != `[[0,"South",175.5],[1,null,175.5]]` {
 		t.Errorf("dan's preview: %s", r)
+	}
+	if b["display"].(map[string]any)["region_name"] == nil {
+		t.Errorf("preview display: %v", b["display"])
 	}
 	st, b = call("dan", "POST", "/api/sql", map[string]any{"connection": "mart", "sql": regions})
 	expect("dan previews SQL", st, 403, b)

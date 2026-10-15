@@ -30,6 +30,7 @@ type Dataset struct {
 	Joins      []Join             `yaml:"joins"`
 	Dimensions map[string]string  `yaml:"dimensions"` // name -> path from the root, e.g. customer.region.region_name
 	Measures   map[string]Measure `yaml:"measures"`
+	Display    map[string]Display `yaml:"display"` // optional, by dimension or measure name
 
 	joins map[string]Join
 	loc   *time.Location
@@ -67,6 +68,25 @@ type Measure struct {
 	Count         string    `yaml:"count"`
 	Ratio         [2]string `yaml:"ratio"`
 	Expr          string    `yaml:"expr"`
+}
+
+// Display is how a dimension or measure is shown: its label (by default its name, capitalised,
+// with spaces for underscores) and, for numbers, a format: number (the default, up to 2
+// decimals), integer, money (2 decimals, no currency symbol) or percent (a ratio, times 100).
+type Display struct {
+	Label  string `yaml:"label" json:"label"`
+	Format string `yaml:"format" json:"format,omitempty"`
+}
+
+var formats = []string{"", "number", "integer", "money", "percent"}
+
+// Shown is how the field name is shown.
+func (d *Dataset) Shown(name string) Display {
+	s := d.Display[name]
+	if s.Label == "" {
+		s.Label = strings.ToUpper(name[:1]) + strings.ReplaceAll(name[1:], "_", " ")
+	}
+	return s
 }
 
 var ident = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
@@ -150,6 +170,15 @@ func (d *Dataset) validate() error {
 		}
 		if err := d.checkMeasure(name, m); err != nil {
 			bad("measure %s: %v", name, err)
+		}
+	}
+	for name, s := range d.Display {
+		_, dim := d.Dimensions[name]
+		if _, ok := d.Measures[name]; !ok && !dim {
+			bad("display %s: not a dimension or measure", name)
+		}
+		if !slices.Contains(formats, s.Format) {
+			bad("display %s: format must be one of number, integer, money, percent", name)
 		}
 	}
 	if len(errs) > 0 {

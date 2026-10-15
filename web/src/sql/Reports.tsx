@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import type { Dash, Result } from './chart'
+import { caption, type Dash, type Labels, type Result } from './chart'
 import Share from './Share'
 import TileOutput from './Tile'
 
@@ -151,6 +151,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
   }, [live, id])
 
   const pub = report?.published
+  const names: Labels = Object.assign({}, ...(run?.tiles ?? []).map((t) => t.display)) // dataset columns' labels
   if (error) return <div className="card sql-error" role="alert">{error}</div>
   if (!report) return <div className="state loading">Loading…</div>
   if (!pub) return <p className="note">This dashboard has not been published yet. {report.canEdit && <a href={`#/sql/${id}`}>Open the draft</a>}</p>
@@ -172,7 +173,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
       <FilterBar columns={[...new Set([...(pub.body.filters ?? []), ...Object.keys(filters)])]} filters={filters}
-        options={run?.options ?? {}} offered={pub.body.filters ?? []} set={filter} />
+        options={run?.options ?? {}} offered={pub.body.filters ?? []} names={names} set={filter} />
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
           const res = run?.tiles[i]
@@ -183,7 +184,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
           return (
             <section key={i} className={'card tile' + (t.wide ? ' wide' : '') + (res?.stale ? ' is-stale' : '')} aria-label={name}>
               {t.title && <header><h3>{t.title}</h3></header>}
-              {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.join(', ')}: this tile has no such column.</p>}
+              {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.map((c) => caption(names, c)).join(', ')}: this tile has no such column.</p>}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
                 : <TileOutput result={res as Result} spec={t.chart} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
@@ -210,8 +211,8 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
 
 // FilterBar shows a choice per filter column: the bar's own, and any added by clicking a chart
 // (those can be removed). Choices are the values in the viewer's own results.
-function FilterBar({ columns, filters, options, offered, set }: {
-  columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]
+function FilterBar({ columns, filters, options, offered, names, set }: {
+  columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]; names: Labels
   set: (column: string, value: string | null) => void
 }) {
   if (!columns.length) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
@@ -219,13 +220,13 @@ function FilterBar({ columns, filters, options, offered, set }: {
     <div className="toolbar filter-bar" role="group" aria-label="Filters">
       {columns.map((c) => (
         <span key={c} className={'filter' + (filters[c] !== undefined ? ' on' : '')}>
-          <label>{c}{' '}
+          <label>{caption(names, c)}{' '}
             <select value={filters[c] ?? ''} onChange={(e) => set(c, e.target.value === '' ? null : e.target.value)}>
               <option value="">All</option>
               {[...new Set([...(options[c] ?? []), ...(filters[c] !== undefined ? [filters[c]] : [])])].map((v) => <option key={v}>{v}</option>)}
             </select>
           </label>
-          {!offered.includes(c) && <button onClick={() => set(c, null)} aria-label={`Remove the ${c} filter`} title="Remove filter">×</button>}
+          {!offered.includes(c) && <button onClick={() => set(c, null)} aria-label={`Remove the ${caption(names, c)} filter`} title="Remove filter">×</button>}
         </span>
       ))}
       {Object.keys(filters).length > 0 && <button onClick={() => Object.keys(filters).forEach((c) => set(c, null))}>Clear filters</button>}

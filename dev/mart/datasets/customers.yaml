@@ -27,3 +27,9 @@ measures:
   order_count: {count: o}
   revenue: {sum: o.line.line_revenue}
   aov: {ratio: [revenue, order_count]}
+display:
+  customer_name: {label: Customer}
+  customer_count: {label: Customers, format: integer}
+  order_count: {label: Orders, format: integer}
+  revenue: {label: Revenue, format: money}
+  aov: {label: Average order value, format: money}
