@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { blank, fit, isNum, kinds, type Dash, type Kind, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, type Agg, type Dash, type Kind, type MatrixSpec, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -38,6 +38,7 @@ const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open }
 const saveable = (t: TileDef): TileDef => ({
   title: t.title, sql: t.sql, show: t.show, wide: t.wide,
   chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split },
+  ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
 // same compares drafts whatever their key order (the database keeps its own)
 const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable), filters: d.filters ?? [] })
@@ -124,7 +125,8 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       const body = await r.json()
       if (!r.ok) return update(t.key, { running: false, error: body.error ?? `HTTP ${r.status}` })
       setTiles((ts) => ts.map((x) => (x.key === t.key
-        ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body) }
+        ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body),
+            matrix: x.show === 'matrix' ? fitMatrix(x.matrix, body) : x.matrix }
         : x)))
     } catch {
       update(t.key, { running: false, error: 'Hareno is not reachable.' })
@@ -241,7 +243,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
         {tiles.map((t, i) => (
           <TileEditor key={t.key} tile={t} first={i === 0} last={i === tiles.length - 1} single={tiles.length === 1}
             update={(p) => update(t.key, p)} move={(by) => move(t.key, by)} run={() => run(t)}
-            remove={() => setTiles((ts) => ts.filter((x) => x.key !== t.key))}
+            remove={() => setTiles((ts) => ts.filter((x) => x.key !== t.key))} connection={connection} onSignedOut={onSignedOut}
             style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         ))}
         <button className="add-tile" onClick={() => setTiles((ts) => [...ts, editing(newTile(), true)])} disabled={tiles.length >= 24}>+ Add tile</button>
@@ -250,12 +252,14 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   )
 }
 
-function TileEditor({ tile: t, first, last, single, update, move, run, remove, style, vars, themeKey, fontsReady }: {
+function TileEditor({ tile: t, first, last, single, update, move, run, remove, connection, onSignedOut, style, vars, themeKey, fontsReady }: {
   tile: Edit; first: boolean; last: boolean; single: boolean
   update: (p: Partial<Edit>) => void; move: (by: number) => void; run: () => void; remove: () => void
+  connection: string; onSignedOut: () => void
   style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
 }) {
   const name = t.title || 'Untitled tile'
+  const pivot = usePivot(t, connection, onSignedOut)
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault()
@@ -268,9 +272,13 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, s
         <input className="tile-title" aria-label="Tile title" placeholder="Untitled tile" value={t.title} maxLength={200}
           onChange={(e) => update({ title: e.target.value })} />
         <span className="tile-tools">
-          <select aria-label={`Show ${name} as`} value={t.show} onChange={(e) => update({ show: e.target.value as Show })}>
+          <select aria-label={`Show ${name} as`} value={t.show} onChange={(e) => {
+            const show = e.target.value as Show
+            update({ show, matrix: show === 'matrix' && t.result ? fitMatrix(t.matrix, t.result) : t.matrix })
+          }}>
             <option value="chart">Chart</option>
             <option value="table">Table</option>
+            <option value="matrix">Matrix</option>
           </select>
           <select aria-label={`Width of ${name}`} value={t.wide ? 'wide' : 'half'} onChange={(e) => update({ wide: e.target.value === 'wide' })}>
             <option value="half">Half width</option>
@@ -288,10 +296,15 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, s
         <div className="toolbar">
           <button className="primary" onClick={run} disabled={t.running || !t.sql.trim()}>{t.running ? 'Running…' : 'Run'}</button>
           {t.result && t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
+          {t.result && t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} setSpec={(matrix) => update({ matrix })} />}
         </div>
       </details>
       {t.error && <div className="sql-error" role="alert">{t.error}</div>}
-      {t.result
+      {t.result && t.show === 'matrix'
+        ? pivot.error ? <div className="sql-error" role="alert">{pivot.error}</div>
+          : pivot.result ? <TileOutput result={pivot.result} spec={null} show="matrix" matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
+          : <div className="state loading">Totalling…</div>
+        : t.result
         ? <TileOutput result={t.result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         : !t.error && <div className={'state' + (t.running ? ' loading' : '')}>{t.running ? 'Running…' : 'Write a query and run it.'}</div>}
     </section>
@@ -331,6 +344,75 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c}>{c}</option>)}
         </select></label>
       )}
+    </div>
+  )
+}
+
+// usePivot runs a matrix tile's query totalled as the matrix asks, whenever its rows or matrix change.
+function usePivot(t: Edit, connection: string, onSignedOut: () => void) {
+  const [out, setOut] = useState<{ result?: Result; error?: string }>({})
+  const spec = t.show === 'matrix' && t.result && t.matrix?.rows.length && t.matrix.values.length ? JSON.stringify(t.matrix) : ''
+  useEffect(() => {
+    if (!spec) return
+    let current = true
+    setOut({})
+    fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify({ connection, sql: t.sql, matrix: JSON.parse(spec) }) }).then(async (r) => {
+      if (r.status === 401) return onSignedOut()
+      const body = await r.json()
+      if (current) setOut(r.ok ? { result: body } : { error: body.error ?? `HTTP ${r.status}` })
+    }, () => current && setOut({ error: 'Hareno is not reachable.' }))
+    return () => { current = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reruns with the tile's result, not as its SQL is typed
+  }, [spec, t.result, connection])
+  return spec ? out : { error: 'Pick at least one row column and one value.' }
+}
+
+function MatrixBuilder({ result, spec, setSpec }: { result: Result; spec: MatrixSpec; setSpec: (m: MatrixSpec) => void }) {
+  const nums = result.columns.filter((_, i) => isNum(result, i))
+  const set = (p: Partial<MatrixSpec>) => setSpec({ ...spec, ...p })
+  // rows: up to three, in order; a column used for rows is not offered for columns
+  const slots = [...spec.rows, ''].slice(0, 3)
+  const setRow = (i: number, c: string) => {
+    const rows = [...spec.rows]
+    if (c) rows[i] = c
+    else rows.splice(i)
+    set({ rows: rows.filter((r, j) => rows.indexOf(r) === j), cols: spec.cols.filter((x) => x !== c) })
+  }
+  const value = (c: string) => spec.values.find((v) => v.column === c)
+  return (
+    <div className="builder">
+      {slots.map((r, i) => (
+        <label key={i}>{i === 0 ? 'Rows' : 'then'} <select value={r} onChange={(e) => setRow(i, e.target.value)}>
+          {i > 0 && <option value="">(none)</option>}
+          {result.columns.filter((c) => c === r || !spec.rows.includes(c)).map((c) => <option key={c}>{c}</option>)}
+        </select></label>
+      ))}
+      <label>Columns <select value={spec.cols[0] ?? ''} onChange={(e) => set({ cols: e.target.value ? [e.target.value] : [] })}>
+        <option value="">(none)</option>
+        {result.columns.filter((c) => !spec.rows.includes(c)).map((c) => <option key={c}>{c}</option>)}
+      </select></label>
+      <fieldset>
+        <legend>Values</legend>
+        {result.columns.filter((c) => !spec.rows.includes(c) && !spec.cols.includes(c)).map((c) => {
+          const v = value(c)
+          const options = (nums.includes(c) ? Object.keys(aggs) : ['count', 'min', 'max']) as Agg[]
+          return (
+            <span key={c}>
+              <label>
+                <input type="checkbox" checked={!!v} disabled={!v && spec.values.length >= 6}
+                  onChange={(e) => set({ values: e.target.checked ? [...spec.values, { column: c, agg: options[0] }] : spec.values.filter((x) => x.column !== c) })} />
+                {' '}{c}
+              </label>
+              {v && (
+                <select aria-label={`How to total ${c}`} value={v.agg}
+                  onChange={(e) => set({ values: spec.values.map((x) => (x.column === c ? { ...x, agg: e.target.value as Agg } : x)) })}>
+                  {options.map((a) => <option key={a} value={a}>{aggs[a]}</option>)}
+                </select>
+              )}
+            </span>
+          )
+        })}
+      </fieldset>
     </div>
   )
 }

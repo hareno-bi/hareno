@@ -186,7 +186,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
               {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.join(', ')}: this tile has no such column.</p>}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
-                : <TileOutput result={res as Result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
+                : <TileOutput result={res as Result} spec={t.chart} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
               {res?.columns && (
                 <p className="as-of muted">
                   <span>
@@ -196,7 +196,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
                   </span>
                   {report.canExport
                     ? <a href={csv} download
-                        title={run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh'}>Download CSV</a>
+                        title={(t.show === 'matrix' ? 'The rows the matrix totals. ' : '') + (run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh')}>Download CSV</a>
                     : <button disabled title="You may not download data from this source">Download CSV</button>}
                 </p>
               )}
@@ -214,7 +214,7 @@ function FilterBar({ columns, filters, options, offered, set }: {
   columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]
   set: (column: string, value: string | null) => void
 }) {
-  if (!columns.length) return <p className="note muted">Click a bar or slice in a chart to filter the other tiles by it.</p>
+  if (!columns.length) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
   return (
     <div className="toolbar filter-bar" role="group" aria-label="Filters">
       {columns.map((c) => (
@@ -229,7 +229,7 @@ function FilterBar({ columns, filters, options, offered, set }: {
         </span>
       ))}
       {Object.keys(filters).length > 0 && <button onClick={() => Object.keys(filters).forEach((c) => set(c, null))}>Clear filters</button>}
-      <span className="muted">Tip: click a bar or slice to filter by it.</span>
+      <span className="muted">Tip: click a bar, slice or matrix row to filter by it.</span>
     </div>
   )
 }

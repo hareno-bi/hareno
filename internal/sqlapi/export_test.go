@@ -36,3 +36,13 @@ func TestWrap(t *testing.T) {
 		t.Errorf("wrap = %q %v", sql, args)
 	}
 }
+
+func TestMatrixWrap(t *testing.T) {
+	m := &Matrix{Rows: []string{"region", "cat"}, Cols: []string{"month"}, Values: []MatrixValue{{"n", "sum"}, {"n", "avg"}}}
+	want := `SELECT GROUPING("region", "cat", "month") AS hareno_level, "region", "cat", "month", sum("n") AS "n (sum)", avg("n") AS "n (avg)" FROM (
+SELECT 1
+) AS hareno_matrix GROUP BY ROLLUP("region", "cat"), ROLLUP("month")`
+	if got := m.wrap("SELECT 1;\n"); got != want || !m.valid() {
+		t.Errorf("wrap = %s", got)
+	}
+}

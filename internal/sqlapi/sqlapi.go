@@ -84,8 +84,9 @@ func (h *Handler) DemoData(w http.ResponseWriter, r *http.Request) {
 }
 
 type request struct {
-	Connection string `json:"connection"`
-	SQL        string `json:"sql"`
+	Connection string  `json:"connection"`
+	SQL        string  `json:"sql"`
+	Matrix     *Matrix `json:"matrix"` // optional: total the rows as a matrix tile does (matrix.go)
 }
 
 type response struct {
@@ -104,7 +105,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req request
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.SQL == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.SQL == "" || (req.Matrix != nil && !req.Matrix.valid()) {
 		fail(w, http.StatusBadRequest, "expected {\"connection\": ..., \"sql\": ...}")
 		return
 	}
@@ -134,7 +135,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := conn.Exec.Run(ctx, scope, req.SQL)
+	sql := req.SQL
+	if req.Matrix != nil {
+		sql = req.Matrix.wrap(sql)
+	}
+	res, err := conn.Exec.Run(ctx, scope, sql)
 	if err != nil {
 		audit.Info("sql failed", "error", err.Error(), "ms", time.Since(start).Milliseconds())
 		var pgErr *pgconn.PgError
