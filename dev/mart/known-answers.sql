@@ -1,6 +1,7 @@
 -- Known answers for the development mart. Expected values were computed by hand from
 -- init.sql; the reference SQL must agree. Hareno's compiled SQL is tested against the
--- same expected values. Run: dev/mart/check.sh
+-- same expected values (internal/query), and end to end through the API on view, preview and
+-- export (internal/sqlapi/exit_test.go). Run: dev/mart/check.sh
 --
 -- Measures used throughout:
 --   revenue = quantity * unit_price * (1 - coalesce(discount, 0))
