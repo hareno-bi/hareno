@@ -89,6 +89,31 @@ Parallel workstreams, each against the capability matrix (§16 item 1), which mu
 | Governance | Sharing via Kiban, catalog listing, permission semantics (§9), audit events, administration |
 | Reporting | Durable jobs, schedules, PDF rendering worker, XLSX via excelize, artifact storage, retention |
 
+### Datasets made and named in Hareno (owner decision 2026-10-15)
+
+Both items below belong to the Semantic modeling workstream.
+
+**Problem.** In Phase 2 a dataset is a YAML file under `dev/mart/datasets/`. It holds the tables, the joins, the measures and, since the `display:` section, each field's label and number format. A developer writes the file, lists it in the API config, and restarts Hareno. No user can make a dataset or rename its fields in the app.
+
+1. **Naming fields (small).** An admin renames fields (`region_name` to "Region") and picks number formats (margin as a percent) on a dataset settings page.
+   - **Concern:** a change shows on every dashboard built on the dataset.
+   - **Solution:** a page lists each field with a label and a format. The overrides are stored in the application database on top of the document's `display:` values, validated as `model.Display` is, and take effect without a restart. Changes are audited.
+2. **Creating datasets (large).** A user makes a dataset in the app.
+   - **Concern:** the choices are easy to get wrong and give wrong numbers without any error:
+     - joins;
+     - grain, since an order-grain measure summed through lines double-counts (known answer Q04);
+     - what a measure means;
+     - the business time zone (Q12).
+
+     Editing a dataset can also silently break published dashboards.
+   - **Solution:** a guided builder:
+     - pick tables, confirm the joins and their kind (one or many), then define measures;
+     - run the generated model against real data before saving (grain check, sample totals);
+     - keep dataset revisions with an impact assessment listing the dashboards and tiles a change affects, as in the model revisions item above.
+   - **Until then:** we write customers' dataset documents for them.
+
+**Who may do this** is a separate permission. A new Kiban relation on the connection (working name `dataset_admin`) allows creating, editing and naming datasets. It is not implied by `sql_user` or `dataset_user`, which only build dashboards from datasets.
+
 **Exit:** capability matrix acceptance criteria met for launch scope.
 
 ## Phase 4 — Operability and hardening (≈6–8 weeks, overlapping Phase 3)
