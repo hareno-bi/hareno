@@ -130,8 +130,8 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Bubble (scatter sized by a value) | ✓ | ✓ | – | ✓ | ✓ | Launch |
 | Table | ✓ | ✓ | ✓ | (own) | – | Have |
 | Matrix (pivot with subtotals) | ✓ | ✓ | ✓ | (own) | – | Have |
-| KPI card (one big number, change vs last period) | ✓ | ✓ | – | (own) | – | Launch |
-| Gauge | ✓ | – | – | ✓ | – | Launch |
+| KPI card (one big number, change vs last period) | ✓ | ✓ | ✓ | (own) | – | Have |
+| Gauge | ✓ | – | ✓ | ✓ | – | Have |
 | Funnel | ✓ | – | – | ✓ | ✓ | Launch |
 | Treemap | ✓ | ✓ | – | ✓ | ✓ | Launch |
 | Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Launch |

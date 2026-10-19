@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, oneValue, roundUp, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -42,7 +42,7 @@ const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open }
 const saveable = (t: TileDef): TileDef => ({
   title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide,
   ...(t.dataset ? { dataset: { dataset: t.dataset.dataset, dimensions: t.dataset.dimensions, measures: t.dataset.measures } } : {}),
-  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split },
+  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}) },
   ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
 // same compares drafts whatever their key order (the database keeps its own)
@@ -334,7 +334,7 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
               ))}
             </span>
           </Field>
-          {t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart })} />}
+          {t.show === 'chart' && <Builder result={t.result} spec={t.chart ?? blank} setSpec={(chart) => update({ chart: fit(chart, t.result!) })} />}
           {t.show === 'matrix' && t.matrix && <MatrixBuilder result={t.result} spec={t.matrix} measures={t.dataset?.measures} setSpec={(matrix) => update({ matrix })} />}
         </div>
       )}
@@ -359,22 +359,23 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
   const pie = spec.kind === 'pie'
-  const single = pie || spec.split !== '' // one value column: slices, or one series per split value
+  const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
+  const single = oneValue(spec.kind) || spec.split !== '' // one value column: slices, one value, or one series per split value
   return (
     <div className="builder">
       <Field label="Type">
         <select aria-label="Chart type" value={spec.kind} onChange={(e) => {
           const kind = e.target.value as Kind
-          set({ kind, ys: kind === 'pie' ? spec.ys.slice(0, 1) : spec.ys, split: kind === 'pie' ? '' : spec.split })
+          set({ kind, ys: oneValue(kind) ? spec.ys.slice(0, 1) : spec.ys, split: oneValue(kind) ? '' : spec.split })
         }}>
           {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
         </select>
       </Field>
-      <Field label={pie ? 'Slices' : 'Categories'}>
-        <select aria-label={pie ? 'Slices' : 'Categories'} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
+      {!(one && (result.rows.length < 2 || !spec.x)) && <Field label={pie ? 'Slices' : one ? 'Latest by' : 'Categories'}>
+        <select aria-label={pie ? 'Slices' : one ? 'Latest by' : 'Categories'} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
-      </Field>
+      </Field>}
       <Field label={single ? 'Value' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
@@ -385,7 +386,14 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           </label>
         ))}
       </Field>
-      {!pie && (
+      {spec.kind === 'gauge' && result.display?.[spec.ys[0]]?.format !== 'percent' && (
+        <Field label="Maximum">
+          <input type="number" aria-label="Gauge maximum" min={0} className="num-input" value={spec.max ?? ''}
+            placeholder={String(roundUp(latest(result, spec).value ?? 0))}
+            onChange={(e) => set({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />
+        </Field>
+      )}
+      {!oneValue(spec.kind) && (
         <Field label="Series by">
           <select aria-label="Series by" value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
             <option value="">(none)</option>
