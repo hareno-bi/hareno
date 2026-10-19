@@ -45,6 +45,8 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .kpi-delta { font-size: 12px; }
 .kpi-delta.up { color: var(--up); }
 .kpi-delta.down { color: var(--down); }
+.tile-kpi { padding: 18px 4px 8px; }
+.tile-kpi .kpi-value { font-size: 44px; line-height: 1.1; }
 .states .card { grid-column: span 1; }
 .grid.states { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .state { height: 120px; display: grid; place-items: center; color: var(--muted); text-align: center; border-radius: var(--radius); padding: 8px; }

@@ -17,9 +17,12 @@ export const number = (d: Labels | undefined, c: string) => (v: number) => {
   const f = d?.[c] && formats[d[c].format ?? 'number']
   return f ? f(v) : v.toLocaleString()
 }
-export const kinds = { bar: 'Column', hbar: 'Bar', line: 'Line', area: 'Area', stacked: 'Stacked column', pie: 'Pie', scatter: 'Scatter' } as const
+export const kinds = { bar: 'Column', hbar: 'Bar', line: 'Line', area: 'Area', stacked: 'Stacked column', pie: 'Pie', scatter: 'Scatter', kpi: 'KPI card', gauge: 'Gauge' } as const
 export type Kind = keyof typeof kinds
-export type Spec = { kind: Kind; x: string; ys: string[]; split: string }
+// max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
+export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
+// one value: KPI cards and gauges show one, pies slice by one
+export const oneValue = (k: Kind) => k === 'pie' || k === 'kpi' || k === 'gauge'
 
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
@@ -28,14 +31,35 @@ export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== n
 export function fit(s: Spec, r: Result): Spec {
   const has = (c: string) => r.columns.includes(c)
   const nums = r.columns.filter((_, i) => isNum(r, i))
-  const x = has(s.x) ? s.x : (r.columns.find((_, i) => !isNum(r, i)) ?? r.columns[0] ?? '')
+  const text = r.columns.find((_, i) => !isNum(r, i))
+  // a KPI card or gauge needs no X; its X is a text column, never the number it shows
+  const latestBy = s.kind === 'kpi' || s.kind === 'gauge'
+  const x = latestBy ? (has(s.x) && !nums.includes(s.x) ? s.x : text ?? '') : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
   const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
+  const one = oneValue(s.kind)
   return {
     kind: s.kind,
     x,
-    ys: ys.length ? ys : nums.filter((c) => c !== x).slice(0, 1),
-    split: has(s.split) && s.split !== x ? s.split : '',
+    ys: (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : undefined),
+    split: has(s.split) && s.split !== x && !one ? s.split : '',
+    ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
   }
+}
+
+// latest is what a KPI card or gauge shows: the value in the last row (rows come ordered by X,
+// e.g. by month), and the row before it to compare with.
+export function latest(r: Result, s: Spec) {
+  const xi = r.columns.indexOf(s.x), yi = r.columns.indexOf(s.ys[0])
+  const at = (i: number) => (i >= 0 && typeof r.rows[i]?.[yi] === 'number' ? r.rows[i][yi] as number : null)
+  const n = r.rows.length
+  return { value: at(n - 1), prior: n > 1 ? at(n - 2) : null, priorAt: n < 2 ? '' : xi >= 0 ? label(r.rows[n - 2][xi]) : 'the row before' }
+}
+
+// roundUp is a gauge's default maximum: 734.75 -> 800, 0.42 -> 0.5
+export function roundUp(v: number) {
+  if (v <= 0) return 1
+  const step = 10 ** Math.floor(Math.log10(v))
+  return Math.ceil(v / step) * step
 }
 
 const label = (v: Value) => (v === null ? '(null)' : String(v))
@@ -51,6 +75,26 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const fmt = (c: string) => ({ valueFormatter: (v: number) => (typeof v === 'number' ? number(d, c)(v) : v) })
   const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtCompact }
   const add = (m: Map<string, number>, k: string, v: Value) => m.set(k, (m.get(k) ?? 0) + (typeof v === 'number' ? v : 0))
+
+  if (s.kind === 'gauge') {
+    const { value } = latest(r, s)
+    const show = number(d, s.ys[0])
+    const max = s.max ?? (d?.[s.ys[0]]?.format === 'percent' ? 1 : roundUp(value ?? 0))
+    return {
+      ...anim,
+      series: [{
+        type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max, radius: '92%', center: ['50%', '58%'],
+        progress: { show: true, width: style.chart.gaugeWidth, roundCap: style.chart.barRadius > 0 },
+        axisLine: { roundCap: style.chart.barRadius > 0, lineStyle: { width: style.chart.gaugeWidth, color: [[1, token('--grid')]] } },
+        axisTick: { show: false }, splitLine: { show: false }, pointer: { show: false }, anchor: { show: false },
+        axisLabel: { show: false },
+        title: { offsetCenter: [0, '28%'], color: token('--muted'), fontSize: 12 },
+        detail: { offsetCenter: [0, '-4%'], fontSize: 30, fontWeight: Number(token('--kpi-weight')), fontFamily: token('--font-display'), color: token('--text'),
+          formatter: (v: number) => (value === null ? '–' : show(v)) },
+        data: [{ value: value ?? 0, name: `${caption(d, s.ys[0])} of ${show(max)}` }],
+      }],
+    }
+  }
 
   if (s.kind === 'pie') {
     const m = new Map<string, number>()
