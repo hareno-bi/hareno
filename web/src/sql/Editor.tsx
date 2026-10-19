@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, oneValue, roundUp, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -143,11 +143,14 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
     update(t.key, { running: true, error: undefined })
     const start = performance.now()
     try {
-      const r = await fetch('/api/sql', { method: 'POST', headers: json, body: JSON.stringify(t.dataset ? { connection, dataset: t.dataset } : { connection, sql: t.sql }) })
+      const sent = JSON.stringify(t.dataset ? { connection, dataset: t.dataset } : { connection, sql: t.sql })
+      const r = await fetch('/api/sql', { method: 'POST', headers: json, body: sent })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
-      if (!r.ok) return update(t.key, { running: false, error: body.error ?? `HTTP ${r.status}` })
-      setTiles((ts) => ts.map((x) => (x.key === t.key
+      // an answer to picks changed since (a quicker later run) is dropped: the later one stands
+      const current = (x: Edit) => x.key === t.key && (!x.dataset || JSON.stringify({ connection, dataset: x.dataset }) === sent)
+      if (!r.ok) return setTiles((ts) => ts.map((x) => (current(x) ? { ...x, running: false, error: body.error ?? `HTTP ${r.status}` } : x)))
+      setTiles((ts) => ts.map((x) => (current(x)
         ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body),
             matrix: x.show === 'matrix' ? fitMatrix(x.matrix, body, x.dataset?.measures) : x.matrix }
         : x)))
@@ -366,7 +369,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
       <Field label="Type">
         <select aria-label="Chart type" value={spec.kind} onChange={(e) => {
           const kind = e.target.value as Kind
-          set({ kind, ys: oneValue(kind) ? spec.ys.slice(0, 1) : spec.ys, split: oneValue(kind) ? '' : spec.split })
+          set({ kind, ys: oneValue(kind) ? spec.ys.slice(0, 1) : spec.ys, split: splits(kind) ? spec.split : '' })
         }}>
           {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
         </select>
@@ -393,7 +396,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
             onChange={(e) => set({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />
         </Field>
       )}
-      {!oneValue(spec.kind) && (
+      {splits(spec.kind) && (
         <Field label="Series by">
           <select aria-label="Series by" value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
             <option value="">(none)</option>

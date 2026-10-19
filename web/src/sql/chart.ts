@@ -17,12 +17,17 @@ export const number = (d: Labels | undefined, c: string) => (v: number) => {
   const f = d?.[c] && formats[d[c].format ?? 'number']
   return f ? f(v) : v.toLocaleString()
 }
-export const kinds = { bar: 'Column', hbar: 'Bar', line: 'Line', area: 'Area', stacked: 'Stacked column', pie: 'Pie', scatter: 'Scatter', kpi: 'KPI card', gauge: 'Gauge' } as const
+export const kinds = {
+  bar: 'Column', hbar: 'Bar', stacked: 'Stacked column', hstacked: 'Stacked bar', pct: '100% stacked column', hpct: '100% stacked bar',
+  line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', scatter: 'Scatter', kpi: 'KPI card', gauge: 'Gauge',
+} as const
 export type Kind = keyof typeof kinds
 // max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
 export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
 // one value: KPI cards and gauges show one, pies slice by one
 export const oneValue = (k: Kind) => k === 'pie' || k === 'kpi' || k === 'gauge'
+// "Series by" splits one value into a series per value of a column; a combo's series are its values
+export const splits = (k: Kind) => !oneValue(k) && k !== 'combo'
 
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
@@ -40,8 +45,9 @@ export function fit(s: Spec, r: Result): Spec {
   return {
     kind: s.kind,
     x,
-    ys: (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : undefined),
-    split: has(s.split) && s.split !== x && !one ? s.split : '',
+    ys: s.kind === 'combo' && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2) // columns and a line
+      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : undefined),
+    split: has(s.split) && s.split !== x && splits(s.kind) ? s.split : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
   }
 }
@@ -139,23 +145,31 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   }
 
   const cats = [...xs.keys()]
-  const horizontal = s.kind === 'hbar'
-  const catAxis = { type: 'category', data: cats, boundaryGap: s.kind !== 'line' && s.kind !== 'area', inverse: horizontal }
-  const valAxis = { type: 'value', axisLabel }
+  const k = s.kind
+  const horizontal = k === 'hbar' || k === 'hstacked' || k === 'hpct'
+  const pct = k === 'pct' || k === 'hpct' // each category's values as shares of its total
+  const stack = pct || k === 'stacked' || k === 'hstacked' || k === 'stackedArea' ? 'total' : undefined
+  const lines = k === 'line' || k === 'area' || k === 'stackedArea'
+  const totals = cats.map((c) => names.reduce((t, n) => t + Math.abs(series.get(n)!.get(c) ?? 0), 0))
+  const catAxis = { type: 'category', data: cats, boundaryGap: !lines, inverse: horizontal }
+  const valAxis = pct ? { type: 'value', max: 1, axisLabel: { formatter: fmtPct } } : { type: 'value', axisLabel }
+  // a combo's first value is columns on the left axis, the others lines on the right, each in its format
+  const combo = k === 'combo' && names.length > 1
+  const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtCompact } }]
   const rad = style.chart.barRadius
   return {
     ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt(s.ys[0]) },
     xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? catAxis : valAxis,
+    yAxis: horizontal ? catAxis : combo ? comboAxes : valAxis,
     series: names.map((n, i) => {
-      const data = cats.map((c) => series.get(n)!.get(c) ?? null)
-      const tooltip = fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
-      if (s.kind === 'line') return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true }
-      if (s.kind === 'area') return { ...line(i), areaStyle: line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true }
-      const stacked = s.kind === 'stacked'
+      const raw = cats.map((c) => series.get(n)!.get(c) ?? null)
+      const data = pct ? raw.map((v, j) => (v === null || !totals[j] ? null : v / totals[j])) : raw
+      const tooltip = pct ? { valueFormatter: (v: number) => (typeof v === 'number' ? fmtPct(v) : v) } : fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
+      if (k === 'line' || (combo && i > 0)) return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
+      if (lines) return { ...line(i), areaStyle: stack ? { opacity: 0.85 } : line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true, stack }
       return {
-        ...bar(i), name: n, data, tooltip, stack: stacked ? 'total' : undefined,
-        itemStyle: { ...bar(i).itemStyle, borderRadius: stacked && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },
+        ...bar(i), name: n, data, tooltip, stack,
+        itemStyle: { ...bar(i).itemStyle, borderRadius: stack && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },
       }
     }),
   }
