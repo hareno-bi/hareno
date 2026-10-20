@@ -21,7 +21,7 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
   if (show === 'chart' && s.kind === 'kpi' && s.ys.length) return <Kpi result={result} spec={s} />
   if (!option) return <div className="state">Pick a column for X and at least one numeric column for Y.</div>
   return fontsReady ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[s.kind]} chart: ${label}`}
-    onPick={onPick && s.kind !== 'scatter' && s.kind !== 'gauge' ? (v) => onPick(s.x, v) : undefined} /> : null
+    onPick={onPick && s.kind !== 'scatter' && s.kind !== 'bubble' && s.kind !== 'gauge' ? (v) => onPick(s.x, v) : undefined} /> : null
 }
 
 // Kpi shows one value large: the latest row's, with its change from the row before (a percent

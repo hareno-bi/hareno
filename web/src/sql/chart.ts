@@ -19,15 +19,17 @@ export const number = (d: Labels | undefined, c: string) => (v: number) => {
 }
 export const kinds = {
   bar: 'Column', hbar: 'Bar', stacked: 'Stacked column', hstacked: 'Stacked bar', pct: '100% stacked column', hpct: '100% stacked bar',
-  line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', scatter: 'Scatter', kpi: 'KPI card', gauge: 'Gauge',
+  line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', funnel: 'Funnel', treemap: 'Treemap', heatmap: 'Heat map', scatter: 'Scatter', bubble: 'Bubble',
+  kpi: 'KPI card', gauge: 'Gauge',
 } as const
 export type Kind = keyof typeof kinds
 // max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
 export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
-// one value: KPI cards and gauges show one, pies slice by one
-export const oneValue = (k: Kind) => k === 'pie' || k === 'kpi' || k === 'gauge'
-// "Series by" splits one value into a series per value of a column; a combo's series are its values
-export const splits = (k: Kind) => !oneValue(k) && k !== 'combo'
+// one value: KPI cards and gauges show one; pies, funnels, treemaps and heat maps share one out
+export const oneValue = (k: Kind) => k === 'pie' || k === 'kpi' || k === 'gauge' || k === 'funnel' || k === 'treemap' || k === 'heatmap'
+// "Series by" splits one value into a series per value of a column (a treemap's groups, a heat
+// map's rows); a combo's series are its values, a bubble's values are its height and size
+export const splits = (k: Kind) => k === 'treemap' || k === 'heatmap' || (!oneValue(k) && k !== 'combo' && k !== 'bubble')
 
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
@@ -39,14 +41,17 @@ export function fit(s: Spec, r: Result): Spec {
   const text = r.columns.find((_, i) => !isNum(r, i))
   // a KPI card or gauge needs no X; its X is a text column, never the number it shows
   const latestBy = s.kind === 'kpi' || s.kind === 'gauge'
-  const x = latestBy ? (has(s.x) && !nums.includes(s.x) ? s.x : text ?? '') : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
+  // a bubble's X is a number: bubbles sit across by one value, up by another, sized by a third
+  const x = latestBy ? (has(s.x) && !nums.includes(s.x) ? s.x : text ?? '')
+    : s.kind === 'bubble' ? (nums.includes(s.x) ? s.x : nums[0] ?? '')
+    : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
   const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
   const one = oneValue(s.kind)
   return {
     kind: s.kind,
     x,
-    ys: s.kind === 'combo' && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2) // columns and a line
-      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : undefined),
+    ys: (s.kind === 'combo' || s.kind === 'bubble') && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2) // columns and a line; up and size
+      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : s.kind === 'bubble' ? 2 : undefined),
     split: has(s.split) && s.split !== x && splits(s.kind) ? s.split : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
   }
@@ -102,15 +107,96 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     }
   }
 
+  if (s.kind === 'bubble') {
+    // one bubble per row, named by its first text column; size by area, the largest 48px across
+    const [up, size] = s.ys.map(col), ni = r.columns.findIndex((_, i) => !isNum(r, i))
+    const big = Math.max(...r.rows.map((row) => Math.abs(Number(row[size]) || 0))) || 1
+    const show = (c: string, v: Value) => `${caption(d, c)}: ${typeof v === 'number' ? number(d, c)(v) : label(v)}`
+    return {
+      ...anim, grid: { ...grid, top: 16, bottom: 28, left: 40 },
+      tooltip: { trigger: 'item', formatter: (p: { name: string; data: { row: Value[] } }) =>
+        [p.name, show(s.x, p.data.row[xi]), show(s.ys[0], p.data.row[up]), ...(size >= 0 ? [show(s.ys[1], p.data.row[size])] : [])].filter(Boolean).join('<br/>') },
+      // room around the outer bubbles
+      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true, boundaryGap: ['12%', '12%'], axisLabel: { formatter: d?.[s.x]?.format === 'percent' ? fmtPct : fmtCompact } },
+      yAxis: { type: 'value', name: caption(d, s.ys[0]), nameLocation: 'middle', nameGap: 40, scale: true, boundaryGap: ['15%', '15%'], axisLabel },
+      series: [{
+        type: 'scatter', itemStyle: { opacity: 0.7 }, label: { show: true, position: 'top', formatter: '{b}', color: token('--muted') },
+        symbolSize: (v: number[]) => (size >= 0 ? 6 + 42 * Math.sqrt(Math.abs(v[2] ?? 0) / big) : 12),
+        data: r.rows.map((row) => ({ name: ni >= 0 ? label(row[ni]) : '', row, value: [row[xi], row[up], size >= 0 ? row[size] : 0] })),
+      }],
+    }
+  }
+
+  // one value shared out by X: slices, funnel steps, treemap boxes (grouped by "Series by")
+  const m = new Map<string, number>()
+  r.rows.forEach((row) => add(m, label(row[xi]), row[col(s.ys[0])]))
+  const shares = [...m].map(([name, value]) => ({ name, value }))
+
+  if (s.kind === 'funnel') {
+    return {
+      ...anim, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
+      series: [{
+        type: 'funnel', top: 8, bottom: 8, left: '4%', width: '62%', sort: 'descending', gap: 2, minSize: '8%',
+        label: { position: 'right', color: token('--text'), formatter: (p: { name: string; value: number }) => `${p.name}  ${number(d, s.ys[0])(p.value)}` }, itemStyle: { borderWidth: 0, borderRadius: style.chart.barRadius },
+        data: shares,
+      }],
+    }
+  }
+
+  if (s.kind === 'treemap') {
+    const groups = new Map<string, Map<string, number>>()
+    for (const row of r.rows) {
+      const g = si >= 0 ? label(row[si]) : ''
+      if (!groups.has(g)) groups.set(g, new Map())
+      add(groups.get(g)!, label(row[xi]), row[col(s.ys[0])])
+    }
+    const leaves = (m: Map<string, number>) => [...m].map(([name, value]) => ({ name, value }))
+    return {
+      ...anim, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
+      series: [{
+        type: 'treemap', top: 0, left: 0, right: 0, bottom: 0, roam: false, nodeClick: false, breadcrumb: { show: false },
+        itemStyle: { borderColor: token('--surface'), borderWidth: 1, gapWidth: 1, borderRadius: Math.min(style.chart.barRadius, 4) },
+        upperLabel: { show: si >= 0, height: 20, color: token('--text') },
+        levels: si >= 0 ? [{ itemStyle: { borderWidth: 0, gapWidth: 3 } }, { colorSaturation: [0.45, 0.75], itemStyle: { gapWidth: 1 } }] : undefined,
+        data: si >= 0 ? [...groups].map(([name, m]) => ({ name, children: leaves(m) })) : leaves(groups.get('') ?? new Map()),
+      }],
+    }
+  }
+
+  if (s.kind === 'heatmap') {
+    // X across, "Series by" down, the value as colour; without "Series by", one row
+    const cells = new Map<string, number>(), across = new Map<string, true>(), down = new Map<string, true>()
+    for (const row of r.rows) {
+      const x = label(row[xi]), y = si >= 0 ? label(row[si]) : caption(d, s.ys[0])
+      across.set(x, true)
+      down.set(y, true)
+      add(cells, JSON.stringify([x, y]), row[col(s.ys[0])])
+    }
+    const xs = [...across.keys()], ys = [...down.keys()], vals = [...cells.values()]
+    const show = number(d, s.ys[0])
+    return {
+      ...anim, grid: { ...grid, top: 8, bottom: 48 },
+      tooltip: { trigger: 'item', formatter: (p: { value: [number, number, number] }) => `${xs[p.value[0]]}, ${ys[p.value[1]]}<br/>${show(p.value[2])}` },
+      xAxis: { type: 'category', data: xs, splitArea: { show: false } },
+      yAxis: { type: 'category', data: ys, inverse: true },
+      visualMap: {
+        min: Math.min(0, ...vals), max: Math.max(...vals), orient: 'horizontal', left: 'center', bottom: 0, itemHeight: 160, calculable: false,
+        text: [show(Math.max(...vals)), show(Math.min(0, ...vals))], inRange: { color: [token('--heat-lo'), token('--heat-hi')] }, textStyle: { color: token('--muted') },
+      },
+      series: [{
+        type: 'heatmap', label: { show: true, formatter: (p: { value: number[] }) => show(p.value[2]) }, itemStyle: { borderColor: token('--surface'), borderWidth: style.chart.heatmapGap, borderRadius: Math.min(style.chart.barRadius, 4) },
+        data: [...cells].map(([k, v]) => { const [x, y] = JSON.parse(k); return { name: x, value: [xs.indexOf(x), ys.indexOf(y), v] } }),
+      }],
+    }
+  }
+
   if (s.kind === 'pie') {
-    const m = new Map<string, number>()
-    r.rows.forEach((row) => add(m, label(row[xi]), row[col(s.ys[0])]))
     return {
       ...anim, legend: { bottom: 0, type: 'scroll' }, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
       series: [{
         type: 'pie', radius: style.chart.donutRadius, center: ['50%', '44%'], padAngle: 1,
         itemStyle: { borderRadius: style.chart.barRadius, borderColor: token('--surface'), borderWidth: style.chart.barRadius ? 0 : 1 },
-        data: [...m].map(([name, value]) => ({ name, value })),
+        data: shares,
       }],
     }
   }

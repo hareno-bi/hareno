@@ -361,8 +361,9 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
-  const pie = spec.kind === 'pie'
+  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across' } as Partial<Record<Kind, string>>)[spec.kind]
   const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
+  const splitName = spec.kind === 'treemap' ? 'Group by' : spec.kind === 'heatmap' ? 'Down' : 'Series by'
   const single = oneValue(spec.kind) || spec.split !== '' // one value column: slices, one value, or one series per split value
   return (
     <div className="builder">
@@ -374,12 +375,12 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
         </select>
       </Field>
-      {!(one && (result.rows.length < 2 || !spec.x)) && <Field label={pie ? 'Slices' : one ? 'Latest by' : 'Categories'}>
-        <select aria-label={pie ? 'Slices' : one ? 'Latest by' : 'Categories'} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
+      {!(one && (result.rows.length < 2 || !spec.x)) && <Field label={xName ?? (one ? 'Latest by' : 'Categories')}>
+        <select aria-label={xName ?? (one ? 'Latest by' : 'Categories')} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>}
-      <Field label={single ? 'Value' : 'Values'}>
+      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
           <label key={c} className="pick">
@@ -397,8 +398,8 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
         </Field>
       )}
       {splits(spec.kind) && (
-        <Field label="Series by">
-          <select aria-label="Series by" value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
+        <Field label={splitName}>
+          <select aria-label={splitName} value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
             <option value="">(none)</option>
             {result.columns.filter((c) => c !== spec.x).map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
           </select>
