@@ -119,12 +119,12 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 |---|---|---|---|---|---|---|
 | Column and bar | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
 | Stacked column | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
-| Stacked bar (horizontal) | ✓ | ✓ | – | ✓ | ✓ | Launch |
-| 100% stacked column and bar | ✓ | ✓ | – | ✓ | – | Launch |
+| Stacked bar (horizontal) | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
+| 100% stacked column and bar | ✓ | ✓ | ✓ | ✓ | – | Have |
 | Line | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
 | Area | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
-| Stacked area | ✓ | ✓ | – | ✓ | ✓ | Launch |
-| Combo: column + line, two axes | ✓ | ✓ | – | ✓ | – | Launch |
+| Stacked area | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
+| Combo: column + line, two axes | ✓ | ✓ | ✓ | ✓ | – | Have |
 | Pie and donut | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
 | Scatter | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
 | Bubble (scatter sized by a value) | ✓ | ✓ | – | ✓ | ✓ | Launch |
