@@ -33,6 +33,7 @@ joins:
 dimensions:
   order_id: order_id
   ordered_at: ordered_at
+  order_day: ordered_at.day
   order_month: ordered_at.month
   region_name: customer.region.region_name
   customer_name: customer.customer_name
@@ -55,6 +56,7 @@ measures:
 display:
   order_id: {label: Order}
   ordered_at: {label: Ordered at}
+  order_day: {label: Day}
   order_month: {label: Month}
   region_name: {label: Region}
   customer_name: {label: Customer}

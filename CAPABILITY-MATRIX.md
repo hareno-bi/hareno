@@ -143,12 +143,12 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Gantt | – | ✓ | – | ✓ (custom series) | – | Launch |
 | Bullet graph | – | ✓ | – | ✓ (custom series) | ✓ | Have |
 | Packed bubbles / circle packing | – | ✓ | – | – | ✓ | Launch |
-| Sunburst | – | – | – | ✓ | ✓ | Launch |
-| Sankey (flows) | – | – | – | ✓ | ✓ | Launch |
-| Radar | – | – | – | ✓ | ✓ | Launch |
-| Calendar heat map | – | – | – | ✓ | ✓ | Launch |
-| Candlestick (finance) | – | – | – | ✓ | – | Launch |
-| Chord, beeswarm | – | – | – | ✓ (ECharts 6) | ✓ | Launch |
+| Sunburst | – | – | – | ✓ | ✓ | Have |
+| Sankey (flows) | – | – | – | ✓ | ✓ | Have |
+| Radar | – | – | – | ✓ | ✓ | Have |
+| Calendar heat map | – | – | – | ✓ | ✓ | Have |
+| Candlestick (finance) | – | – | – | ✓ | – | Have |
+| Chord, beeswarm | – | – | – | ✓ (ECharts 6) | ✓ | Have |
 | Waffle, marimekko, bump | – | – | – | – | ✓ | Launch |
 | AI visuals (key influencers, decomposition tree, Q&A) | ✓ | partly | – | – | – | Launch |
 

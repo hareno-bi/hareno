@@ -361,9 +361,10 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
-  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps' } as Partial<Record<Kind, string>>)[spec.kind]
+  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps',
+    sunburst: 'Outer ring', sankey: 'From', chord: 'From', radar: 'Spokes', calendar: 'Dates' } as Partial<Record<Kind, string>>)[spec.kind]
   const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
-  const splitName = spec.kind === 'treemap' ? 'Group by' : spec.kind === 'heatmap' ? 'Down' : 'Series by'
+  const splitName = ({ treemap: 'Group by', heatmap: 'Down', sunburst: 'Inner ring', sankey: 'To', chord: 'To' } as Partial<Record<Kind, string>>)[spec.kind] ?? 'Series by'
   const single = oneValue(spec.kind) || spec.split !== '' // one value column: slices, one value, or one series per split value
   return (
     <div className="builder">
@@ -380,7 +381,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>}
-      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : 'Values'}>
+      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : spec.kind === 'candlestick' ? 'Open, close, low, high' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
           <label key={c} className="pick">
