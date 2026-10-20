@@ -15,13 +15,13 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
 }) {
   const s = fit(spec?.kind ? spec : blank, result)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
-  const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge') && s.ys.length && s.kind !== 'kpi' ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey])
+  const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge' || s.kind === 'histogram') && s.ys.length && s.kind !== 'kpi' ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey])
   if (show === 'table') return <Table result={result} />
   if (show === 'matrix') return matrix ? <MatrixTable result={result} spec={matrix} onPick={onPick} /> : null
   if (show === 'chart' && s.kind === 'kpi' && s.ys.length) return <Kpi result={result} spec={s} />
   if (!option) return <div className="state">Pick a column for X and at least one numeric column for Y.</div>
   return fontsReady ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[s.kind]} chart: ${label}`}
-    onPick={onPick && s.kind !== 'scatter' && s.kind !== 'bubble' && s.kind !== 'gauge' ? (v) => onPick(s.x, v) : undefined} /> : null
+    onPick={onPick && !['scatter', 'bubble', 'gauge', 'histogram', 'waterfall'].includes(s.kind) ? (v) => onPick(s.x, v) : undefined} /> : null
 }
 
 // Kpi shows one value large: the latest row's, with its change from the row before (a percent

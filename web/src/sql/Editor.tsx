@@ -151,7 +151,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       const current = (x: Edit) => x.key === t.key && (!x.dataset || JSON.stringify({ connection, dataset: x.dataset }) === sent)
       if (!r.ok) return setTiles((ts) => ts.map((x) => (current(x) ? { ...x, running: false, error: body.error ?? `HTTP ${r.status}` } : x)))
       setTiles((ts) => ts.map((x) => (current(x)
-        ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(x.chart?.kind ? x.chart : blank, body),
+        ? { ...x, running: false, result: body, ms: performance.now() - start, chart: fit(measuresOnly(x.chart?.kind ? x.chart : blank, x.dataset), body),
             matrix: x.show === 'matrix' ? fitMatrix(x.matrix, body, x.dataset?.measures) : x.matrix }
         : x)))
     } catch {
@@ -361,7 +361,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
-  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across' } as Partial<Record<Kind, string>>)[spec.kind]
+  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps' } as Partial<Record<Kind, string>>)[spec.kind]
   const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
   const splitName = spec.kind === 'treemap' ? 'Group by' : spec.kind === 'heatmap' ? 'Down' : 'Series by'
   const single = oneValue(spec.kind) || spec.split !== '' // one value column: slices, one value, or one series per split value
@@ -375,12 +375,12 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {(Object.keys(kinds) as Kind[]).map((k) => <option key={k} value={k}>{kinds[k]}</option>)}
         </select>
       </Field>
-      {!(one && (result.rows.length < 2 || !spec.x)) && <Field label={xName ?? (one ? 'Latest by' : 'Categories')}>
+      {!(one && (result.rows.length < 2 || !spec.x)) && spec.kind !== 'histogram' && <Field label={xName ?? (one ? 'Latest by' : 'Categories')}>
         <select aria-label={xName ?? (one ? 'Latest by' : 'Categories')} value={spec.x} onChange={(e) => set({ x: e.target.value })}>
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>}
-      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : 'Values'}>
+      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
           <label key={c} className="pick">
@@ -408,6 +408,10 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
     </div>
   )
 }
+
+// measuresOnly keeps a dataset tile's chart values to its measures: a value picked while only
+// a numeric field (an order number, say) was ticked gives way when a measure is ticked.
+const measuresOnly = (c: Spec, p?: Pick): Spec => (p ? { ...c, ys: c.ys.filter((y) => p.measures.includes(y)) } : c)
 
 // usePivot runs a matrix tile's query totalled as the matrix asks, whenever its rows or matrix change.
 function usePivot(t: Edit, connection: string, onSignedOut: () => void) {

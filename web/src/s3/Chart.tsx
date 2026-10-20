@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart } from 'echarts/charts'
+import { BarChart, BoxplotChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart } from 'echarts/charts'
 import { DatasetComponent, GridComponent, LegendComponent, TooltipComponent, VisualMapComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { echartsTheme, type ChartStyle, type Tokens } from './theme'
 
-echarts.use([BarChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart, DatasetComponent, GridComponent,
+echarts.use([BarChart, BoxplotChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart, DatasetComponent, GridComponent,
   LegendComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
 
 // Chart renders one ECharts option. It re-creates the instance when the theme changes (ECharts

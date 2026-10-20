@@ -20,16 +20,19 @@ export const number = (d: Labels | undefined, c: string) => (v: number) => {
 export const kinds = {
   bar: 'Column', hbar: 'Bar', stacked: 'Stacked column', hstacked: 'Stacked bar', pct: '100% stacked column', hpct: '100% stacked bar',
   line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', funnel: 'Funnel', treemap: 'Treemap', heatmap: 'Heat map', scatter: 'Scatter', bubble: 'Bubble',
-  kpi: 'KPI card', gauge: 'Gauge',
+  waterfall: 'Waterfall', histogram: 'Histogram', boxplot: 'Box plot', bullet: 'Bullet', kpi: 'KPI card', gauge: 'Gauge',
 } as const
 export type Kind = keyof typeof kinds
 // max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
 export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
-// one value: KPI cards and gauges show one; pies, funnels, treemaps and heat maps share one out
-export const oneValue = (k: Kind) => k === 'pie' || k === 'kpi' || k === 'gauge' || k === 'funnel' || k === 'treemap' || k === 'heatmap'
+// one value: KPI cards and gauges show one; pies, funnels, treemaps, heat maps and waterfalls share
+// one out; histograms and box plots show how one spreads over the rows
+export const oneValue = (k: Kind) => ['pie', 'kpi', 'gauge', 'funnel', 'treemap', 'heatmap', 'waterfall', 'histogram', 'boxplot'].includes(k)
+// two values: a combo's columns and line, a bubble's height and size, a bullet's value and target
+const twoValues = (k: Kind) => k === 'combo' || k === 'bubble' || k === 'bullet'
 // "Series by" splits one value into a series per value of a column (a treemap's groups, a heat
 // map's rows); a combo's series are its values, a bubble's values are its height and size
-export const splits = (k: Kind) => k === 'treemap' || k === 'heatmap' || (!oneValue(k) && k !== 'combo' && k !== 'bubble')
+export const splits = (k: Kind) => k === 'treemap' || k === 'heatmap' || (!oneValue(k) && !twoValues(k))
 
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
@@ -37,7 +40,8 @@ export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== n
 // X the first text column, Y the first number column after it.
 export function fit(s: Spec, r: Result): Spec {
   const has = (c: string) => r.columns.includes(c)
-  const nums = r.columns.filter((_, i) => isNum(r, i))
+  // number columns, those with a number format (a dataset's measures, not e.g. its order numbers) first
+  const nums = r.columns.filter((_, i) => isNum(r, i)).sort((a, b) => Number(!r.display?.[a]?.format) - Number(!r.display?.[b]?.format))
   const text = r.columns.find((_, i) => !isNum(r, i))
   // a KPI card or gauge needs no X; its X is a text column, never the number it shows
   const latestBy = s.kind === 'kpi' || s.kind === 'gauge'
@@ -50,8 +54,8 @@ export function fit(s: Spec, r: Result): Spec {
   return {
     kind: s.kind,
     x,
-    ys: (s.kind === 'combo' || s.kind === 'bubble') && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2) // columns and a line; up and size
-      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : s.kind === 'bubble' ? 2 : undefined),
+    ys: twoValues(s.kind) && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2)
+      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : twoValues(s.kind) && s.kind !== 'combo' ? 2 : undefined),
     split: has(s.split) && s.split !== x && splits(s.kind) ? s.split : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
   }
@@ -79,7 +83,7 @@ const MAX_SERIES = 24
 // chartOption turns rows into an ECharts option. With "Series by", rows become one series per
 // value of that column; rows with the same X (and series) are added together.
 export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): EChartsCoreOption {
-  const { token, line, bar, anim, grid, legend } = treatment(style.chart, vars)
+  const { token, colour, line, bar, anim, grid, legend } = treatment(style.chart, vars)
   const col = (c: string) => r.columns.indexOf(c)
   const xi = col(s.x), si = s.split ? col(s.split) : -1
   const d = r.display
@@ -127,10 +131,87 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     }
   }
 
+  if (s.kind === 'histogram') {
+    // how the value spreads over the rows: Sturges' number of bins, each the same width
+    const vs = r.rows.map((row) => row[col(s.ys[0])]).filter((v): v is number => typeof v === 'number')
+    const lo = vs.reduce((a, v) => Math.min(a, v), vs[0] ?? 0), hi = vs.reduce((a, v) => Math.max(a, v), vs[0] ?? 0)
+    const n = Math.ceil(Math.log2(vs.length || 1)) + 1, w = (hi - lo) / n || 1
+    const counts: number[] = Array(n).fill(0)
+    vs.forEach((v) => counts[Math.min(n - 1, Math.floor((v - lo) / w))]++)
+    const show = number(d, s.ys[0])
+    return {
+      ...anim, grid: { ...grid, top: 16 }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: { type: 'category', data: counts.map((_, i) => `${show(lo + i * w)} – ${show(lo + (i + 1) * w)}`), name: caption(d, s.ys[0]), nameLocation: 'middle', nameGap: 28 },
+      yAxis: { type: 'value', minInterval: 1 },
+      series: [{ ...bar(0), name: 'Rows', barCategoryGap: '4%', barMaxWidth: undefined, data: counts }],
+    }
+  }
+
+  if (s.kind === 'boxplot') {
+    // each X's spread of the value over its rows: lowest, quartiles, median, highest
+    const groups = new Map<string, number[]>()
+    for (const row of r.rows) {
+      const v = row[col(s.ys[0])], x = label(row[xi])
+      if (typeof v !== 'number') continue
+      if (!groups.has(x)) groups.set(x, [])
+      groups.get(x)!.push(v)
+    }
+    const q = (a: number[], p: number) => { const i = (a.length - 1) * p, f = Math.floor(i); return a[f] + (a[Math.ceil(i)] - a[f]) * (i - f) }
+    const boxes = [...groups].map(([name, a]) => (a.sort((u, v) => u - v), { name, value: [0, 0.25, 0.5, 0.75, 1].map((p) => q(a, p)), n: a.length }))
+    const show = number(d, s.ys[0])
+    return {
+      ...anim, grid: { ...grid, top: 16 },
+      tooltip: { trigger: 'item', formatter: (p: { name: string; data: { value: number[]; n: number } }) =>
+        [p.name, ...['Highest', 'Upper quartile', 'Median', 'Lower quartile', 'Lowest'].map((t, i) => `${t}: ${show(p.data.value[4 - i])}`), `${p.data.n} rows`].join('<br/>') },
+      xAxis: { type: 'category', data: boxes.map((b) => b.name) },
+      yAxis: { type: 'value', scale: true, axisLabel },
+      series: [{ type: 'boxplot', itemStyle: { color: colour(0) + '33', borderColor: colour(0) }, data: boxes }],
+    }
+  }
+
+  if (s.kind === 'bullet') {
+    // each X's value as a bar, its target as a mark across it
+    const vm = new Map<string, number>(), tm = new Map<string, number>()
+    r.rows.forEach((row) => { add(vm, label(row[xi]), row[col(s.ys[0])]); if (s.ys[1]) add(tm, label(row[xi]), row[col(s.ys[1])]) })
+    const cats = [...vm.keys()], rad = style.chart.barRadius
+    return {
+      ...anim, grid, legend, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      xAxis: { type: 'value', axisLabel }, yAxis: { type: 'category', data: cats, inverse: true },
+      series: [
+        { ...bar(0), name: caption(d, s.ys[0]), barMaxWidth: 16, tooltip: fmt(s.ys[0]), itemStyle: { ...bar(0).itemStyle, borderRadius: [0, rad, rad, 0] },
+          data: cats.map((c) => vm.get(c)) },
+        ...(s.ys[1] ? [{ type: 'scatter', name: caption(d, s.ys[1]), symbol: 'rect', symbolSize: [3, 26], z: 3, itemStyle: { color: token('--text') },
+          tooltip: fmt(s.ys[1]), data: cats.map((c, i) => [tm.get(c) ?? null, i]) }] : []),
+      ],
+    }
+  }
+
   // one value shared out by X: slices, funnel steps, treemap boxes (grouped by "Series by")
   const m = new Map<string, number>()
   r.rows.forEach((row) => add(m, label(row[xi]), row[col(s.ys[0])]))
   const shares = [...m].map(([name, value]) => ({ name, value }))
+
+  if (s.kind === 'waterfall') {
+    // each X a step up or down from the running total, then the total
+    // ponytail: assumes the running total stays at or above zero; stacked bars below it would need a different base
+    let run = 0
+    const steps = shares.map(({ name, value }) => { const from = run; run += value; return { name, value, from } })
+    const show = number(d, s.ys[0])
+    return {
+      ...anim, grid: { ...grid, top: 16 },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (ps: { dataIndex: number }[]) => {
+        const st = steps[ps[0].dataIndex]
+        return st ? `${st.name}<br/>${show(st.value)}, running total ${show(st.from + st.value)}` : `Total<br/>${show(run)}`
+      } },
+      xAxis: { type: 'category', data: [...steps.map((x) => x.name), 'Total'] },
+      yAxis: { type: 'value', axisLabel },
+      series: [
+        { type: 'bar', stack: 'w', silent: true, itemStyle: { color: 'transparent' }, data: [...steps.map((x) => Math.min(x.from, x.from + x.value)), 0] },
+        { ...bar(0), stack: 'w', data: [...steps.map((x) => ({ value: Math.abs(x.value), itemStyle: { color: token(x.value < 0 ? '--down' : '--up') } })),
+          { value: run, itemStyle: { color: colour(0) } }] },
+      ],
+    }
+  }
 
   if (s.kind === 'funnel') {
     return {
