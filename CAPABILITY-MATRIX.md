@@ -135,13 +135,13 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Funnel | ✓ | – | – | ✓ | ✓ | Have |
 | Treemap | ✓ | ✓ | – | ✓ | ✓ | Have |
 | Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Have |
-| Waterfall | ✓ | – | – | ✓ (stacked-bar method) | – | Launch |
+| Waterfall | ✓ | – | – | ✓ (stacked-bar method) | – | Have |
 | Ribbon | ✓ | – | – | – | – | Launch |
 | Filled map and point map | ✓ | ✓ | – | ✓ (needs map shapes) | ✓ | Launch |
-| Histogram | – | ✓ | – | ✓ | – | Launch |
-| Box plot | – | ✓ | – | ✓ | ✓ | Launch |
+| Histogram | – | ✓ | – | ✓ | – | Have |
+| Box plot | – | ✓ | – | ✓ | ✓ | Have |
 | Gantt | – | ✓ | – | ✓ (custom series) | – | Launch |
-| Bullet graph | – | ✓ | – | ✓ (custom series) | ✓ | Launch |
+| Bullet graph | – | ✓ | – | ✓ (custom series) | ✓ | Have |
 | Packed bubbles / circle packing | – | ✓ | – | – | ✓ | Launch |
 | Sunburst | – | – | – | ✓ | ✓ | Launch |
 | Sankey (flows) | – | – | – | ✓ | ✓ | Launch |
