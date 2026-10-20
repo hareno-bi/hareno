@@ -127,14 +127,14 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Combo: column + line, two axes | ✓ | ✓ | ✓ | ✓ | – | Have |
 | Pie and donut | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
 | Scatter | ✓ | ✓ | ✓ | ✓ | ✓ | Have |
-| Bubble (scatter sized by a value) | ✓ | ✓ | – | ✓ | ✓ | Launch |
+| Bubble (scatter sized by a value) | ✓ | ✓ | – | ✓ | ✓ | Have |
 | Table | ✓ | ✓ | ✓ | (own) | – | Have |
 | Matrix (pivot with subtotals) | ✓ | ✓ | ✓ | (own) | – | Have |
 | KPI card (one big number, change vs last period) | ✓ | ✓ | ✓ | (own) | – | Have |
 | Gauge | ✓ | – | ✓ | ✓ | – | Have |
-| Funnel | ✓ | – | – | ✓ | ✓ | Launch |
-| Treemap | ✓ | ✓ | – | ✓ | ✓ | Launch |
-| Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Launch |
+| Funnel | ✓ | – | – | ✓ | ✓ | Have |
+| Treemap | ✓ | ✓ | – | ✓ | ✓ | Have |
+| Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Have |
 | Waterfall | ✓ | – | – | ✓ (stacked-bar method) | – | Launch |
 | Ribbon | ✓ | – | – | – | – | Launch |
 | Filled map and point map | ✓ | ✓ | – | ✓ (needs map shapes) | ✓ | Launch |
