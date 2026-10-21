@@ -2,11 +2,12 @@ import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, BoxplotChart, CandlestickChart, ChordChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, MapChart, PieChart, RadarChart, SankeyChart, ScatterChart, SunburstChart, TreemapChart } from 'echarts/charts'
 import { CalendarComponent, DatasetComponent, GeoComponent, TitleComponent, GridComponent, LegendComponent, TooltipComponent, RadarComponent, VisualMapComponent } from 'echarts/components'
+import { ScatterJitter } from 'echarts/features'
 import { CanvasRenderer } from 'echarts/renderers'
 import { echartsTheme, type ChartStyle, type Tokens } from './theme'
 
 echarts.use([MapChart, GeoComponent, TitleComponent, BarChart, BoxplotChart, CandlestickChart, ChordChart, FunnelChart, RadarChart, SankeyChart, SunburstChart, CalendarComponent, RadarComponent, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart, TreemapChart, DatasetComponent, GridComponent,
-  LegendComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
+  LegendComponent, TooltipComponent, VisualMapComponent, ScatterJitter, CanvasRenderer])
 
 // Chart renders one ECharts option. It re-creates the instance when the theme changes (ECharts
 // themes are fixed at init) and follows its container's size. theme is any key that changes with it.
