@@ -82,7 +82,9 @@ async function loadFonts(s: Style) {
   loaded.add(s.id)
 }
 
-export function useTheme() {
+// fixed: a light or dark mode and a style that override the viewer's saved choice without changing
+// it (an embedded dashboard takes them from its address)
+export function useTheme(fixed: { pref?: Pref; style?: string } = {}) {
   const [pref, setPref] = useState<Pref>(() => read('hareno-theme', ['light', 'dark', 'system'], 'system'))
   const [styleId, setStyleId] = useState(() => read('hareno-style', styles.map((s) => s.id), 'hareno'))
   const [system, setSystem] = useState<Mode>(media.matches ? 'dark' : 'light')
@@ -92,8 +94,9 @@ export function useTheme() {
     media.addEventListener('change', on)
     return () => media.removeEventListener('change', on)
   }, [])
-  const mode: Mode = pref === 'system' ? system : pref
-  const style = styles.find((s) => s.id === styleId) ?? styles[0]
+  const shown = fixed.pref ?? pref
+  const mode: Mode = shown === 'system' ? system : shown
+  const style = styles.find((s) => s.id === (fixed.style ?? styleId)) ?? styles[0]
   applyChrome(mode)
   useEffect(() => save('hareno-theme', pref), [pref])
   useEffect(() => {

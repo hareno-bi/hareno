@@ -3,7 +3,10 @@
 // Kiban token. It also works on plain-HTTP dev origins, where the browser SDK cannot run PKCE
 // (crypto.subtle needs a secure context).
 //
-//	GET  /auth/login     starts the authorization code flow with PKCE (?user= pre-fills the name)
+//	GET  /auth/login     starts the authorization code flow with PKCE (?user= pre-fills the name;
+//	                     ?return=#/... comes back to that page; ?silent=1 signs in only if Kiban
+//	                     already knows the browser, without showing a page; ?popup=1 for a sign-in
+//	                     window that closes itself: both for dashboards embedded in another site)
 //	GET  /auth/callback  exchanges the code and sets the session cookie
 //	POST /auth/logout    ends the session here and in Kiban
 //	GET  /api/me         the signed-in user's display name, or null; and any test accounts
@@ -17,8 +20,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -65,24 +70,61 @@ type session struct {
 	used    time.Time
 }
 
+// back is a page of Hareno's own to return to after login: a hash route, so never another site.
+var back = regexp.MustCompile(`^#/[A-Za-z0-9/_.~%=&?+:-]*$`)
+
 func (s *Signin) Login(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
 	state, verifier := rand.Text(), oauth2.GenerateVerifier()
-	setCookie(w, r, loginCookie, state+"."+verifier, 600)
+	mode, ret := "", q.Get("return")
+	if q.Get("popup") == "1" {
+		mode = "popup"
+	} else if q.Get("silent") == "1" {
+		mode = "silent"
+	}
+	if !back.MatchString(ret) {
+		ret = ""
+	}
+	setCookie(w, r, loginCookie, strings.Join([]string{state, verifier, mode, base64.RawURLEncoding.EncodeToString([]byte(ret))}, "."), 600)
 	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
-	if u := r.URL.Query().Get("user"); u != "" {
+	if u := q.Get("user"); u != "" {
 		opts = append(opts, oauth2.SetAuthURLParam("login_hint", u)) // pre-fills the user name on Kiban's page
+	}
+	if mode == "silent" {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "none")) // Kiban answers at once: signed in, or login_required
 	}
 	http.Redirect(w, r, s.OAuth.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
+// mark adds key=value to a hash route's query: how a silent login tells the page what happened.
+func mark(route, kv string) string {
+	if route == "" {
+		route = "#/"
+	}
+	if strings.Contains(route, "?") {
+		return route + "&" + kv
+	}
+	return route + "?" + kv
+}
+
 func (s *Signin) Callback(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(loginCookie)
-	state, verifier, _ := strings.Cut(valueOf(c, err), ".")
+	parts := append(strings.SplitN(valueOf(c, err), ".", 4), "", "", "")
+	state, verifier, mode := parts[0], parts[1], parts[2]
+	ret, _ := base64.RawURLEncoding.DecodeString(parts[3])
 	if state == "" || r.URL.Query().Get("state") != state {
 		http.Error(w, "login expired or started elsewhere; start again from Hareno", http.StatusBadRequest)
 		return
 	}
 	setCookie(w, r, loginCookie, "", -1)
+	if r.URL.Query().Get("error") != "" {
+		if mode == "silent" { // not signed in to Kiban: the page offers a sign-in button instead
+			http.Redirect(w, r, s.Home+mark(string(ret), "signin=needed"), http.StatusFound)
+			return
+		}
+		http.Error(w, "login failed", http.StatusBadGateway)
+		return
+	}
 	tok, err := s.OAuth.Exchange(r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(verifier))
 	if err != nil {
 		http.Error(w, "login failed", http.StatusBadGateway)
@@ -104,7 +146,17 @@ func (s *Signin) Callback(w http.ResponseWriter, r *http.Request) {
 	s.sessions[id] = sess
 	s.mu.Unlock()
 	setCookie(w, r, sessionCookie, id, 0)
-	http.Redirect(w, r, s.Home, http.StatusFound)
+	switch mode {
+	case "popup": // tell the page that opened this window, then close it
+		home, _ := json.Marshal(s.Home)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Signed in to Hareno</title><p>Signed in. You can close this window.</p>
+<script>if (window.opener) { window.opener.postMessage('hareno:signed-in', location.origin); window.close() } else { location.replace(%s) }</script>`, home)
+	case "silent": // done, so the page does not try again if the browser refused the cookie
+		http.Redirect(w, r, s.Home+mark(string(ret), "signin=done"), http.StatusFound)
+	default:
+		http.Redirect(w, r, s.Home+string(ret), http.StatusFound)
+	}
 }
 
 func (s *Signin) LogoutHandler(w http.ResponseWriter, r *http.Request) {

@@ -64,21 +64,24 @@ type Published = { revision: number; publishedAt: string; body: Dash }
 type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[] }
 type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]> }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
-type Filters = Record<string, string>
+export type Filters = Record<string, string>
 
 const EVERY = 5000 // dashboards refresh every five seconds while visible (ARCHITECTURE-PLAN §8.1)
 const time = (s: string) => new Date(s).toLocaleTimeString()
 const when = (s: string) => (isNaN(Date.parse(s)) ? s : new Date(s).toLocaleString())
 
-export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut }: {
+// embedded: shown in another site's frame (Embed): no editing or sharing, the title only if asked;
+// filters: the filters it starts with
+export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut, embedded, title = true, filters: initial = {} }: {
   id: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
+  embedded?: boolean; title?: boolean; filters?: Filters
 }) {
   const [report, setReport] = useState<{ published?: Published; canEdit: boolean; canExport: boolean } | null>(null)
   const [run, setRun] = useState<Run | null>(null)
   const [checked, setChecked] = useState<Date | null>(null) // last successful refresh
   const [failed, setFailed] = useState<string | null>(null) // why the last refresh failed
   const [error, setError] = useState<string | null>(null)
-  const [filters, setFilters] = useState<Filters>({})
+  const [filters, setFilters] = useState<Filters>(initial)
   const busy = useRef(false)
   const again = useRef(false) // filters changed during a refresh: refresh once more after it
   const current = useRef(filters) // for the poll, which keeps the first render's refresh
@@ -157,12 +160,14 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut 
   if (!pub) return <p className="note">This dashboard has not been published yet. {report.canEdit && <a href={`#/sql/${id}`}>Open the draft</a>}</p>
   return (
     <div className="report">
-      <div className="toolbar">
-        <h2>{pub.body.title}</h2>
-        <span className="muted">Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleString()}</span>
-        {report.canEdit && <Share id={id} />}
-        {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
-      </div>
+      {embedded
+        ? title && <div className="toolbar"><h2>{pub.body.title}</h2></div>
+        : <div className="toolbar">
+          <h2>{pub.body.title}</h2>
+          <span className="muted">Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleString()}</span>
+          {report.canEdit && <Share id={id} />}
+          {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
+        </div>}
       <p className="note" role="status">
         {failed
           ? <span className="stale">Could not refresh: {failed} Showing the data from {checked ? checked.toLocaleTimeString() : 'before'}; trying again every 5 seconds.</span>
