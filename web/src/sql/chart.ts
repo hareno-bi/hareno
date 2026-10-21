@@ -1,6 +1,7 @@
 import type { EChartsCoreOption } from 'echarts/core'
 import { fmtCompact, fmtPct, fmtWhole, fmtYield } from '../s3/format'
 import { treatment, type Style, type Tokens } from '../s3/theme'
+import { mapOf, placeOf } from './maps'
 
 // A query result and the chart settings built on it (SQL editor and saved reports).
 export type Value = string | number | boolean | null
@@ -20,19 +21,29 @@ export const number = (d: Labels | undefined, c: string) => (v: number) => {
 export const kinds = {
   bar: 'Column', hbar: 'Bar', stacked: 'Stacked column', hstacked: 'Stacked bar', pct: '100% stacked column', hpct: '100% stacked bar',
   line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', funnel: 'Funnel', treemap: 'Treemap', heatmap: 'Heat map', scatter: 'Scatter', bubble: 'Bubble',
-  waterfall: 'Waterfall', histogram: 'Histogram', boxplot: 'Box plot', bullet: 'Bullet', kpi: 'KPI card', gauge: 'Gauge',
+  waterfall: 'Waterfall', histogram: 'Histogram', boxplot: 'Box plot', bullet: 'Bullet',
+  sunburst: 'Sunburst', sankey: 'Sankey', chord: 'Chord', radar: 'Radar', calendar: 'Calendar heat map', candlestick: 'Candlestick', beeswarm: 'Beeswarm',
+  map: 'Filled map', pointmap: 'Point map', kpi: 'KPI card', gauge: 'Gauge',
 } as const
 export type Kind = keyof typeof kinds
-// max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
-export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
-// one value: KPI cards and gauges show one; pies, funnels, treemaps, heat maps and waterfalls share
-// one out; histograms and box plots show how one spreads over the rows
-export const oneValue = (k: Kind) => ['pie', 'kpi', 'gauge', 'funnel', 'treemap', 'heatmap', 'waterfall', 'histogram', 'boxplot'].includes(k)
-// two values: a combo's columns and line, a bubble's height and size, a bullet's value and target
-const twoValues = (k: Kind) => k === 'combo' || k === 'bubble' || k === 'bullet'
+// max: a gauge's maximum (unset: 100% for a percent, else a round number above the value);
+// map: a map's shapes, 'world' (unset) or a country's code for its states or provinces
+export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number; map?: string }
+export const maps = (k: Kind) => k === 'map' || k === 'pointmap'
+// one value: KPI cards and gauges show one; pies, funnels, treemaps, sunbursts, heat maps, calendars
+// and waterfalls share one out; flows (Sankey, chord) are sized by one; histograms, box plots and
+// beeswarms show how one spreads over the rows
+export const oneValue = (k: Kind) => ['pie', 'kpi', 'gauge', 'funnel', 'treemap', 'sunburst', 'heatmap', 'calendar', 'waterfall',
+  'sankey', 'chord', 'histogram', 'boxplot', 'beeswarm', 'map'].includes(k)
+// several values, in the order picked: a combo's columns and lines, a bubble's height and size, a
+// bullet's value and target, a candlestick's open, close, low and high, a point's longitude,
+// latitude and size
+const several = (k: Kind) => ({ combo: 2, bubble: 2, bullet: 2, candlestick: 4, pointmap: 3 } as Partial<Record<Kind, number>>)[k]
+// flows go from X to "Series by"
+const flows = (k: Kind) => k === 'sankey' || k === 'chord'
 // "Series by" splits one value into a series per value of a column (a treemap's groups, a heat
 // map's rows); a combo's series are its values, a bubble's values are its height and size
-export const splits = (k: Kind) => k === 'treemap' || k === 'heatmap' || (!oneValue(k) && !twoValues(k))
+export const splits = (k: Kind) => ['treemap', 'sunburst', 'heatmap', 'sankey', 'chord'].includes(k) || (!oneValue(k) && !several(k))
 
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
@@ -48,16 +59,23 @@ export function fit(s: Spec, r: Result): Spec {
   // a bubble's X is a number: bubbles sit across by one value, up by another, sized by a third
   const x = latestBy ? (has(s.x) && !nums.includes(s.x) ? s.x : text ?? '')
     : s.kind === 'bubble' ? (nums.includes(s.x) ? s.x : nums[0] ?? '')
+    : s.kind === 'calendar' && !has(s.x) ? (r.columns.find((_, i) => /^\d{4}-\d\d-\d\d/.test(String(r.rows[0]?.[i]))) ?? text ?? '') // a date column
     : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
   const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
-  const one = oneValue(s.kind)
+  const one = oneValue(s.kind), n = several(s.kind)
+  // a point map's values default to its longitude and latitude columns, by name
+  const geo = (c: string) => (/lon|lng/i.test(c) ? 0 : /lat/i.test(c) ? 1 : 2)
+  const pool = s.kind === 'pointmap' ? [...nums].sort((a, b) => geo(a) - geo(b)) : nums
   return {
     kind: s.kind,
     x,
-    ys: twoValues(s.kind) && ys.length < 2 ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, 2)
-      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : twoValues(s.kind) && s.kind !== 'combo' ? 2 : undefined),
-    split: has(s.split) && s.split !== x && splits(s.kind) ? s.split : '',
+    ys: n && ys.length < n ? [...ys, ...pool.filter((c) => c !== x && !ys.includes(c))].slice(0, n)
+      : (ys.length ? ys : pool.filter((c) => c !== x)).slice(0, one ? 1 : n && s.kind !== 'combo' ? n : undefined),
+    // a flow needs somewhere to go: the next text column
+    split: has(s.split) && s.split !== x && splits(s.kind) ? s.split
+      : flows(s.kind) ? (r.columns.find((c, i) => c !== x && !isNum(r, i)) ?? '') : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
+    ...(maps(s.kind) && s.map && s.map !== 'world' ? { map: s.map } : {}),
   }
 }
 
@@ -78,6 +96,8 @@ export function roundUp(v: number) {
 }
 
 const label = (v: Value) => (v === null ? '(null)' : String(v))
+// an axis's numbers: short from 10,000 (12K), in full below, where shortening repeats labels (1.1K, 1.1K)
+const fmtAxis = (v: number) => (Math.abs(v) >= 1e4 ? fmtCompact(v) : v.toLocaleString())
 const MAX_SERIES = 24
 
 // chartOption turns rows into an ECharts option. With "Series by", rows become one series per
@@ -88,7 +108,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const xi = col(s.x), si = s.split ? col(s.split) : -1
   const d = r.display
   const fmt = (c: string) => ({ valueFormatter: (v: number) => (typeof v === 'number' ? number(d, c)(v) : v) })
-  const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtCompact }
+  const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtAxis }
   const add = (m: Map<string, number>, k: string, v: Value) => m.set(k, (m.get(k) ?? 0) + (typeof v === 'number' ? v : 0))
 
   if (s.kind === 'gauge') {
@@ -121,7 +141,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       tooltip: { trigger: 'item', formatter: (p: { name: string; data: { row: Value[] } }) =>
         [p.name, show(s.x, p.data.row[xi]), show(s.ys[0], p.data.row[up]), ...(size >= 0 ? [show(s.ys[1], p.data.row[size])] : [])].filter(Boolean).join('<br/>') },
       // room around the outer bubbles
-      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true, boundaryGap: ['12%', '12%'], axisLabel: { formatter: d?.[s.x]?.format === 'percent' ? fmtPct : fmtCompact } },
+      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true, boundaryGap: ['12%', '12%'], axisLabel: { formatter: d?.[s.x]?.format === 'percent' ? fmtPct : fmtAxis } },
       yAxis: { type: 'value', name: caption(d, s.ys[0]), nameLocation: 'middle', nameGap: 40, scale: true, boundaryGap: ['15%', '15%'], axisLabel },
       series: [{
         type: 'scatter', itemStyle: { opacity: 0.7 }, label: { show: true, position: 'top', formatter: '{b}', color: token('--muted') },
@@ -166,6 +186,32 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       xAxis: { type: 'category', data: boxes.map((b) => b.name) },
       yAxis: { type: 'value', scale: true, axisLabel },
       series: [{ type: 'boxplot', itemStyle: { color: colour(0) + '33', borderColor: colour(0) }, data: boxes }],
+    }
+  }
+
+  if (s.kind === 'candlestick') {
+    // a row per X: open, close, low and high, as picked; up days in the rising colour
+    const [o, c, lo, hi] = s.ys.map(col), at = (row: Value[], i: number) => (i >= 0 ? row[i] : null)
+    return {
+      ...anim, grid: { ...grid, top: 16 }, tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      xAxis: { type: 'category', data: r.rows.map((row) => label(row[xi])) },
+      yAxis: { type: 'value', scale: true, axisLabel },
+      series: [{
+        type: 'candlestick', name: caption(d, s.ys[0]),
+        itemStyle: { color: token('--up'), color0: token('--down'), borderColor: token('--up'), borderColor0: token('--down') },
+        data: r.rows.map((row) => [at(row, o), at(row, c), at(row, lo), at(row, hi)]),
+      }],
+    }
+  }
+
+  if (s.kind === 'beeswarm') {
+    // a dot per row, in its X's band, spread sideways so dots do not overlap
+    const cats = [...new Set(r.rows.map((row) => label(row[xi])))]
+    return {
+      ...anim, grid: { ...grid, top: 16 }, tooltip: { trigger: 'item', formatter: (p: { value: [string, number] }) => `${p.value[0]}<br/>${number(d, s.ys[0])(p.value[1])}` },
+      xAxis: { type: 'category', data: cats, jitter: 48, jitterOverlap: false, jitterMargin: 2 },
+      yAxis: { type: 'value', scale: true, axisLabel },
+      series: [{ type: 'scatter', symbolSize: 7, itemStyle: { opacity: 0.8 }, data: r.rows.map((row) => [label(row[xi]), row[col(s.ys[0])]]) }],
     }
   }
 
@@ -224,7 +270,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     }
   }
 
-  if (s.kind === 'treemap') {
+  if (s.kind === 'treemap' || s.kind === 'sunburst') {
     const groups = new Map<string, Map<string, number>>()
     for (const row of r.rows) {
       const g = si >= 0 ? label(row[si]) : ''
@@ -232,6 +278,16 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       add(groups.get(g)!, label(row[xi]), row[col(s.ys[0])])
     }
     const leaves = (m: Map<string, number>) => [...m].map(([name, value]) => ({ name, value }))
+    const data = si >= 0 ? [...groups].map(([name, m]) => ({ name, children: leaves(m) })) : leaves(groups.get('') ?? new Map())
+    if (s.kind === 'sunburst') return {
+      ...anim, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
+      series: [{
+        type: 'sunburst', radius: [si >= 0 ? '12%' : '30%', '92%'], nodeClick: false, sort: undefined,
+        itemStyle: { borderColor: token('--surface'), borderWidth: 2, borderRadius: Math.min(style.chart.barRadius, 4) },
+        label: { color: token('--text'), minAngle: 12 }, levels: si >= 0 ? [{}, {}, { itemStyle: { opacity: 0.7 } }] : undefined,
+        data,
+      }],
+    }
     return {
       ...anim, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
       series: [{
@@ -239,8 +295,60 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
         itemStyle: { borderColor: token('--surface'), borderWidth: 1, gapWidth: 1, borderRadius: Math.min(style.chart.barRadius, 4) },
         upperLabel: { show: si >= 0, height: 20, color: token('--text') },
         levels: si >= 0 ? [{ itemStyle: { borderWidth: 0, gapWidth: 3 } }, { colorSaturation: [0.45, 0.75], itemStyle: { gapWidth: 1 } }] : undefined,
-        data: si >= 0 ? [...groups].map(([name, m]) => ({ name, children: leaves(m) })) : leaves(groups.get('') ?? new Map()),
+        data,
       }],
+    }
+  }
+
+  if (flows(s.kind)) {
+    // flows from X to "Series by", each as wide as its value
+    // ponytail: a Sankey cannot draw a loop (A to B and B to A); ECharts reports it instead
+    const links = new Map<string, number>(), nodes = new Map<string, true>()
+    for (const row of r.rows) {
+      const from = label(row[xi]), to = si >= 0 ? label(row[si]) : ''
+      if (!to || from === to) continue
+      nodes.set(from, true).set(to, true)
+      add(links, JSON.stringify([from, to]), row[col(s.ys[0])])
+    }
+    const data = [...nodes.keys()].map((name) => ({ name }))
+    const edges = [...links].filter(([, v]) => v > 0).map(([k, value]) => { const [source, target] = JSON.parse(k); return { source, target, value } })
+    const show = number(d, s.ys[0])
+    const tooltip = { trigger: 'item', formatter: (p: { dataType: string; name: string; value: number; data: { source?: string; target?: string } }) =>
+      p.dataType === 'edge' ? `${p.data.source} → ${p.data.target}<br/>${show(p.value)}` : `${p.name}<br/>${show(p.value)}` }
+    if (s.kind === 'chord') return {
+      ...anim, tooltip,
+      series: [{ type: 'chord', radius: ['74%', '80%'], center: ['50%', '50%'], padAngle: 2, label: { show: true, color: token('--text') },
+        lineStyle: { color: 'gradient', opacity: 0.45 }, emphasis: { focus: 'adjacency' }, data, links: edges }],
+    }
+    return {
+      ...anim, tooltip,
+      series: [{ type: 'sankey', top: 8, bottom: 8, left: 8, right: 96, nodeGap: 10, draggable: false, emphasis: { focus: 'adjacency' },
+        label: { color: token('--text') }, lineStyle: { color: 'gradient', opacity: 0.35 }, itemStyle: { borderWidth: 0 }, data, links: edges }],
+    }
+  }
+
+  if (s.kind === 'calendar') {
+    // a day per cell, coloured by its value; X is a date (or a time, read as its date)
+    // ponytail: the date is the text's first ten characters; a raw time's may be in UTC, so pick a day
+    // field (labelled in the business time zone) for exact days, or convert here if datasets lack one
+    const days = new Map<string, number>()
+    r.rows.forEach((row) => add(days, String(row[xi]).slice(0, 10), row[col(s.ys[0])]))
+    const keys = [...days.keys()].filter((k) => /^\d{4}-\d\d-\d\d$/.test(k)).sort(), vals = keys.map((k) => days.get(k)!)
+    const show = number(d, s.ys[0])
+    return {
+      ...anim,
+      tooltip: { trigger: 'item', formatter: (p: { value: [string, number] }) => `${p.value[0]}<br/>${show(p.value[1])}` },
+      visualMap: {
+        min: Math.min(0, ...vals), max: Math.max(0, ...vals), orient: 'horizontal', left: 'center', bottom: 0, itemHeight: 160, calculable: false,
+        text: [show(Math.max(0, ...vals)), show(Math.min(0, ...vals))], inRange: { color: [token('--heat-lo'), token('--heat-hi')] }, textStyle: { color: token('--muted') },
+      },
+      calendar: {
+        range: keys.length ? [keys[0], keys[keys.length - 1]] : new Date().getFullYear(), top: 28, left: 36, right: 8, bottom: 48, cellSize: ['auto', 'auto'],
+        itemStyle: { borderColor: token('--surface'), borderWidth: Math.max(1, style.chart.heatmapGap), color: token('--sub') },
+        splitLine: { lineStyle: { color: token('--grid') } }, yearLabel: { show: false },
+        dayLabel: { color: token('--muted'), firstDay: 1 }, monthLabel: { color: token('--muted') },
+      },
+      series: [{ type: 'heatmap', coordinateSystem: 'calendar', data: keys.map((k) => [k, days.get(k)]) }],
     }
   }
 
@@ -268,6 +376,45 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
         type: 'heatmap', label: { show: true, formatter: (p: { value: number[] }) => show(p.value[2]) }, itemStyle: { borderColor: token('--surface'), borderWidth: style.chart.heatmapGap, borderRadius: Math.min(style.chart.barRadius, 4) },
         data: [...cells].map(([k, v]) => { const [x, y] = JSON.parse(k); return { name: x, value: [xs.indexOf(x), ys.indexOf(y), v] } }),
       }],
+    }
+  }
+
+  if (maps(s.kind)) {
+    // a country's or state's shape coloured by its value, or a point per row at its longitude and
+    // latitude; places not on the map are listed under it
+    const id = s.map ?? 'world', show = number(d, s.ys[0])
+    if (!mapOf(id)) return {}
+    const small = { fontSize: 10, fontWeight: 'normal', color: token('--muted') }
+    const notes = [{ text: 'Boundaries: Natural Earth. They do not imply endorsement.', right: 0, bottom: 0, textStyle: small }]
+    const land = { map: id, roam: true, scaleLimit: { min: 1, max: 12 }, itemStyle: { areaColor: token('--sub'), borderColor: token('--surface'), borderWidth: 0.6 } }
+    if (s.kind === 'pointmap') {
+      const [lon, lat, size] = s.ys.map(col)
+      const big = Math.max(...r.rows.map((row) => Math.abs(Number(row[size]) || 0))) || 1
+      return {
+        ...anim, title: notes, tooltip: { trigger: 'item', formatter: (p: { name: string; value: Value[] }) => (size >= 0 ? `${p.name}<br/>${number(d, s.ys[2])(Number(p.value[2]))}` : p.name) },
+        geo: { ...land, silent: true },
+        series: [{ type: 'scatter', coordinateSystem: 'geo', itemStyle: { color: colour(0), opacity: 0.75 },
+          symbolSize: (v: number[]) => (size >= 0 ? 5 + 25 * Math.sqrt(Math.abs(v[2] ?? 0) / big) : 8),
+          data: r.rows.filter((row) => typeof row[lon] === 'number' && typeof row[lat] === 'number').map((row) => ({ name: label(row[xi]), value: [row[lon], row[lat], size >= 0 ? row[size] : 0] })) }],
+      }
+    }
+    // the map's names shown as the dataset's (nameMap), so a click picks the dataset's value
+    const nameMap: Record<string, string> = {}, missing: string[] = []
+    for (const { name } of shares) {
+      const place = placeOf(id, name)
+      if (place) nameMap[place] = name
+      else missing.push(name)
+    }
+    const found = shares.filter((x) => !missing.includes(x.name)), vals = found.map((x) => x.value)
+    if (missing.length) notes.push({ text: `Not on the map: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` and ${missing.length - 3} more` : ''}`, right: 0, bottom: 14, textStyle: small })
+    return {
+      ...anim, title: notes,
+      tooltip: { trigger: 'item', formatter: (p: { name: string; value: number }) => `${p.name}<br/>${typeof p.value === 'number' && !isNaN(p.value) ? show(p.value) : 'no value'}` },
+      visualMap: {
+        min: Math.min(0, ...vals), max: Math.max(0, ...vals), orient: 'vertical', left: 0, bottom: 0, itemHeight: 100, calculable: false,
+        text: [show(Math.max(0, ...vals)), show(Math.min(0, ...vals))], inRange: { color: [token('--heat-lo'), token('--heat-hi')] }, textStyle: { color: token('--muted') },
+      },
+      series: [{ type: 'map', ...land, nameMap, select: { disabled: true }, emphasis: { label: { show: false }, itemStyle: { areaColor: token('--active') } }, data: found }],
     }
   }
 
@@ -299,6 +446,20 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   }
   const names = [...series.keys()]
 
+  if (s.kind === 'radar') {
+    // X values are the spokes, one shape per value (or per "Series by" value), all on one scale
+    const spokes = [...xs.keys()], peak = Math.max(0, ...names.flatMap((n) => [...series.get(n)!.values()]))
+    return {
+      ...anim, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'item' },
+      radar: { indicator: spokes.map((name) => ({ name, max: roundUp(peak) })), radius: '64%', center: ['50%', '56%'],
+        axisName: { color: token('--muted') }, splitLine: { lineStyle: { color: token('--grid') } }, splitArea: { show: false }, axisLine: { lineStyle: { color: token('--grid') } } },
+      series: [{
+        type: 'radar', symbolSize: 4,
+        data: names.map((n, i) => ({ name: n, value: spokes.map((c) => series.get(n)!.get(c) ?? 0), areaStyle: { opacity: 0.15 }, lineStyle: { width: style.chart.lineWidth, color: colour(i) }, itemStyle: { color: colour(i) } })),
+      }],
+    }
+  }
+
   if (s.kind === 'scatter') {
     return {
       ...anim, grid: { ...grid, bottom: 28, left: 24 }, legend, tooltip: { trigger: 'item' },
@@ -322,14 +483,14 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const valAxis = pct ? { type: 'value', max: 1, axisLabel: { formatter: fmtPct } } : { type: 'value', axisLabel }
   // a combo's first value is columns on the left axis, the others lines on the right, each in its format
   const combo = k === 'combo' && names.length > 1
-  const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtCompact } }]
+  const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtAxis } }]
   const rad = style.chart.barRadius
   return {
     ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt(s.ys[0]) },
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : combo ? comboAxes : valAxis,
     series: names.map((n, i) => {
-      const raw = cats.map((c) => series.get(n)!.get(c) ?? null)
+      const raw = cats.map((c) => series.get(n)!.get(c) ?? (stack ? 0 : null)) // a stack counts a missing value as 0, or its layers break
       const data = pct ? raw.map((v, j) => (v === null || !totals[j] ? null : v / totals[j])) : raw
       const tooltip = pct ? { valueFormatter: (v: number) => (typeof v === 'number' ? fmtPct(v) : v) } : fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
       if (k === 'line' || (combo && i > 0)) return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }

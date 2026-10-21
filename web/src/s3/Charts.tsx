@@ -3,6 +3,8 @@ import type { EChartsCoreOption } from 'echarts/core'
 import { Chart } from './Chart'
 import { fmtCompact, fmtDelta, fmtPct, fmtWhole } from './format'
 import { treatment, type ChartStyle, type Style, type Tokens } from './theme'
+import { samples } from './samples'
+import TileOutput from '../sql/Tile'
 
 type Series = { name: string; data: number[] }
 type Period = { tonnes: number; flights: number; revenue: number; onTime: number }
@@ -36,6 +38,7 @@ export default function Charts({ style, vars, themeKey, fontsReady }: { style: S
   const theme = themeKey // charts re-create when mode, style or fonts change
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow the theme
   const opts = useMemo(() => (data ? options(data, style.chart, vars) : null), [data, theme])
+  const every = useMemo(() => (data ? samples(data) : []), [data])
 
   if (error) return <p className="note">Sample data missing ({error}). Run <code>web/scripts/s3-snapshot.sh</code>.</p>
   if (!data || !opts || !fontsReady) return <div className="grid">{[1, 2, 3, 4].map((i) => <Card key={i} title="" state="loading" />)}</div>
@@ -74,6 +77,15 @@ export default function Charts({ style, vars, themeKey, fontsReady }: { style: S
         <Card title="Shipment dwell time" sub="400 shipments, weight against hours in terminal, scatter">
           {chart('scatter', 'Scatter chart: shipment weight against dwell time')}
         </Card>
+      </div>
+      <h2>Every chart type</h2>
+      <p className="note">As a dashboard tile draws each type, from the same sample data. The maps' places are samples.</p>
+      <div className="grid">
+        {every.map((x, i) => (
+          <Card key={i} title={x.title} sub={x.sub} wide={x.wide}>
+            <TileOutput result={x.result} spec={x.spec} show="chart" label={x.title} style={style} vars={vars} themeKey={theme} fontsReady={fontsReady} />
+          </Card>
+        ))}
       </div>
       <h2>States</h2>
       <div className="grid states">

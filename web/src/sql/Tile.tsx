@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { Chart } from '../s3/Chart'
 import type { Style, Tokens } from '../s3/theme'
 import { fmtDelta } from '../s3/format'
-import { blank, caption, chartOption, fit, kinds, latest, number, type MatrixSpec, type Result, type Show, type Spec } from './chart'
+import { blank, caption, chartOption, fit, kinds, latest, maps, number, type MatrixSpec, type Result, type Show, type Spec } from './chart'
+import { useMap } from './maps'
 import MatrixTable from './MatrixTable'
 import Table from './Table'
 
@@ -14,14 +15,16 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
   onPick?: (column: string, value: string) => void
 }) {
   const s = fit(spec?.kind ? spec : blank, result)
+  const mapReady = useMap(maps(s.kind) ? s.map ?? 'world' : undefined)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
-  const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge' || s.kind === 'histogram') && s.ys.length && s.kind !== 'kpi' ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey])
+  const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge' || s.kind === 'histogram') && s.ys.length && s.kind !== 'kpi' && (mapReady || !maps(s.kind)) ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey, mapReady])
   if (show === 'table') return <Table result={result} />
   if (show === 'matrix') return matrix ? <MatrixTable result={result} spec={matrix} onPick={onPick} /> : null
   if (show === 'chart' && s.kind === 'kpi' && s.ys.length) return <Kpi result={result} spec={s} />
+  if (show === 'chart' && maps(s.kind) && !mapReady) return <div className="state loading">Loading the map…</div>
   if (!option) return <div className="state">Pick a column for X and at least one numeric column for Y.</div>
   return fontsReady ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[s.kind]} chart: ${label}`}
-    onPick={onPick && !['scatter', 'bubble', 'gauge', 'histogram', 'waterfall'].includes(s.kind) ? (v) => onPick(s.x, v) : undefined} /> : null
+    onPick={onPick && !['scatter', 'bubble', 'beeswarm', 'gauge', 'histogram', 'waterfall', 'calendar', 'sankey', 'chord', 'sunburst', 'radar'].includes(s.kind) ? (v) => onPick(s.x, v) : undefined} /> : null
 }
 
 // Kpi shows one value large: the latest row's, with its change from the row before (a percent
