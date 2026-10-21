@@ -50,8 +50,11 @@ services:
     network_mode: host  # reaches the API and Kiban, which listen on loopback
     environment:
       HARENO_PUBLIC_HOST: ${HARENO_PUBLIC_HOST:-localhost}
+      # sites allowed to show Hareno dashboards in a frame: here the test host on :55452
+      HARENO_EMBED_HOSTS: ${HARENO_EMBED_HOSTS:-http://${HARENO_PUBLIC_HOST:-localhost}:55452}
     volumes:
       - ./web/dist:/usr/share/nginx/html:ro
+      - ./dev/demo/embed-host:/usr/share/nginx/embed-host:ro
       - ./dev/demo/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
 
 volumes:

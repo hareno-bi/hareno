@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- A stand-in for another company's site that embeds Hareno dashboards (dev/README.md, "Embedding").
+     Served on its own port, so it is another origin; Hareno allows it in frame-ancestors. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report Repository (test host)</title>
+<style>
+  body { margin: 0; font: 14px/1.5 system-ui, sans-serif; background: #eef1f5; color: #1f2933; }
+  header { background: #243b53; color: #fff; padding: 12px 20px; font-weight: 600; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  .note { color: #52606d; }
+  iframe { width: 100%; border: 1px solid #cbd2d9; border-radius: 6px; background: #fff; height: 600px; }
+  input[name=d] { width: 26em; }
+</style>
+</head>
+<body>
+<header>Report Repository (a stand-in for a client's own site)</header>
+<main>
+  <p class="note">This page is on another origin than Hareno and shows a Hareno dashboard in a frame, as a client's site would.
+    The frame sizes itself to the dashboard.</p>
+  <form id="pick">Dashboard id <input name="d" placeholder="paste a published dashboard's id">
+    <label><input type="checkbox" name="dark"> dark</label> <button>Show</button></form>
+  <h2 id="title"></h2>
+  <iframe id="hareno" title="Hareno dashboard" hidden></iframe>
+</main>
+<script>
+  // Hareno is on the same host, port 55450 (the demo proxy)
+  const hareno = `${location.protocol}//${location.hostname}:55450`
+  const q = new URLSearchParams(location.search), frame = document.getElementById('hareno')
+  const d = q.get('d')
+  if (d) {
+    document.querySelector('[name=d]').value = d
+    document.querySelector('[name=dark]').checked = q.has('dark')
+    frame.src = `${hareno}/#/embed/${encodeURIComponent(d)}${q.has('dark') ? '?theme=dark' : ''}`
+    frame.hidden = false
+  }
+  // the dashboard reports its height; only messages from Hareno are taken
+  addEventListener('message', (e) => {
+    if (e.origin === hareno && e.data?.type === 'hareno:height') frame.style.height = `${e.data.height + 2}px`
+  })
+</script>
+</body>
+</html>
