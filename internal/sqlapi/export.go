@@ -101,13 +101,18 @@ func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, `filters: expected {"<column>": ["<value>", ...]}`)
 		return
 	}
+	var dates *Dates
+	if d := r.URL.Query().Get("dates"); d != "" && (json.Unmarshal([]byte(d), &dates) != nil || !dates.valid()) {
+		fail(w, http.StatusBadRequest, `dates: expected {"last": ...} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}`)
+		return
+	}
 	// a matrix tile downloads the rows it totals
-	sql, args, _, err := h.tileQuery(ctx, rep.Connection, body.Tiles[n], slices.Collect(maps.Keys(filters)), filters, nil)
+	sql, args, _, _, err := h.tileQuery(ctx, rep.Connection, body.Tiles[n], slices.Collect(maps.Keys(filters)), filters, dates, nil)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	audit = audit.With("revision", *rep.Published, "tile", n, "filters", filters)
+	audit = audit.With("revision", *rep.Published, "tile", n, "filters", filters, "dates", dates)
 
 	ex := conn.Exec
 	ex.MaxRows, ex.Timeout = conn.ExportRows, conn.ExportTimeout

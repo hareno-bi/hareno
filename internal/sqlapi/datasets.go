@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -123,8 +124,8 @@ var malloyEscapes = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\n", `\n`, "\r", 
 func malloyString(v string) string { return "'" + malloyEscapes.Replace(v) + "'" }
 
 // tile is the SQL a dataset tile runs, narrowed by the filters that apply to it (its text
-// dimensions) and, with a matrix, as the matrix's rows with every total. It returns the filters
-// applied.
+// dimensions) and the date range (on the dataset's date, dates.go) and, with a matrix, as the
+// matrix's rows with every total. It returns the filters applied, and whether the dates were.
 //
 // A matrix on a dataset tile does not add up the tile's rows (matrix.go): a ratio or a distinct
 // count cannot be summed. Each total is the dataset query again, grouped by fewer dimensions,
@@ -133,18 +134,24 @@ func malloyString(v string) string { return "'" + malloyEscapes.Replace(v) + "'"
 //	SELECT 0 AS hareno_level, b."region_name", b."category", b."margin_pct" FROM (<by region and category>) AS b
 //	UNION ALL SELECT 1, b."region_name", NULL, b."margin_pct" FROM (<by region>) AS b
 //	UNION ALL SELECT 3, NULL, NULL, b."margin_pct" FROM (<no grouping>) AS b
-func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection, q DatasetQuery, f Filters, m *Matrix) (string, []string, error) {
+func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection, q DatasetQuery, f Filters, dates *Dates, m *Matrix) (string, []string, bool, error) {
 	base, err := ds.compile(ctx, connection, conn, q.Dataset, model.Query{Dimensions: q.Dimensions, Measures: q.Measures})
 	if err != nil {
-		return "", nil, err
+		return "", nil, false, err
 	}
 	on := f.on(base.text)
+	conds := where(f, on)
+	d := ds.ByName[q.Dataset]
+	dated := dates != nil && d.Date != ""
+	if dated {
+		conds = append(conds, d.Between(dates.span(d.Today(time.Now()))))
+	}
 	if m == nil {
-		if len(on) == 0 {
-			return base.sql, nil, nil
+		if len(conds) == 0 {
+			return base.sql, nil, false, nil
 		}
-		c, err := ds.compile(ctx, connection, conn, q.Dataset, model.Query{Dimensions: q.Dimensions, Measures: q.Measures, Where: where(f, on)})
-		return c.sql, on, err
+		c, err := ds.compile(ctx, connection, conn, q.Dataset, model.Query{Dimensions: q.Dimensions, Measures: q.Measures, Where: conds})
+		return c.sql, on, dated, err
 	}
 	var measures []string
 	for _, v := range m.Values {
@@ -153,7 +160,7 @@ func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection
 	dims := append(slices.Clone(m.Rows), m.Cols...)
 	if slices.ContainsFunc(dims, func(d string) bool { return !slices.Contains(q.Dimensions, d) }) ||
 		slices.ContainsFunc(measures, func(v string) bool { return !slices.Contains(q.Measures, v) }) {
-		return "", nil, fmt.Errorf("%w: a matrix shows the tile's own fields and measures", ErrDataset)
+		return "", nil, false, fmt.Errorf("%w: a matrix shows the tile's own fields and measures", ErrDataset)
 	}
 	var parts []string
 	for depth := len(m.Rows); depth >= 0; depth-- {
@@ -165,9 +172,9 @@ func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection
 			if across {
 				group = append(group, m.Cols...)
 			}
-			c, err := ds.compile(ctx, connection, conn, q.Dataset, model.Query{Dimensions: group, Measures: measures, Where: where(f, on)})
+			c, err := ds.compile(ctx, connection, conn, q.Dataset, model.Query{Dimensions: group, Measures: measures, Where: conds})
 			if err != nil {
-				return "", nil, err
+				return "", nil, false, err
 			}
 			level, sel := 0, []string{""}
 			for i, d := range dims {
@@ -188,19 +195,20 @@ func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection
 			parts = append(parts, "SELECT "+strings.Join(sel, ", ")+" FROM (\n"+c.sql+"\n) AS b")
 		}
 	}
-	return strings.Join(parts, "\nUNION ALL\n"), on, nil
+	return strings.Join(parts, "\nUNION ALL\n"), on, dated, nil
 }
 
 // tileQuery is the SQL a tile runs and its arguments, narrowed by the filters that apply to it
-// (returned) and, with m, totalled as a matrix. cols are the columns of the tile's unfiltered
-// result, which decide the filters on a SQL tile.
-func (h *Handler) tileQuery(ctx context.Context, connection string, t Tile, cols []string, f Filters, m *Matrix) (string, []any, []string, error) {
+// (returned) and the date range (whether it applied is returned: dataset tiles only) and, with m,
+// totalled as a matrix. cols are the columns of the tile's unfiltered result, which decide the
+// filters on a SQL tile.
+func (h *Handler) tileQuery(ctx context.Context, connection string, t Tile, cols []string, f Filters, dates *Dates, m *Matrix) (string, []any, []string, bool, error) {
 	if t.Dataset != nil {
 		if h.Datasets == nil {
-			return "", nil, nil, fmt.Errorf("%w: datasets are not set up on this server", ErrDataset)
+			return "", nil, nil, false, fmt.Errorf("%w: datasets are not set up on this server", ErrDataset)
 		}
-		sql, on, err := h.Datasets.tile(ctx, connection, h.Connections[connection], *t.Dataset, f, m)
-		return sql, nil, on, err
+		sql, on, dated, err := h.Datasets.tile(ctx, connection, h.Connections[connection], *t.Dataset, f, dates, m)
+		return sql, nil, on, dated, err
 	}
 	sql, args := t.SQL, []any(nil)
 	on := f.on(cols)
@@ -210,7 +218,7 @@ func (h *Handler) tileQuery(ctx context.Context, connection string, t Tile, cols
 	if m != nil {
 		sql = m.wrap(sql)
 	}
-	return sql, args, on, nil
+	return sql, args, on, false, nil
 }
 
 // pgTypes are the PostgreSQL types Malloy's result types are read back as.

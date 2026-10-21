@@ -59,6 +59,8 @@ type tileResult struct {
 	Error string    `json:"error,omitempty"` // why the refresh failed, or why there is no result
 	// Filtered are the viewer's filters that apply to this tile (filters.go).
 	Filtered []string `json:"filtered,omitempty"`
+	// Dated is whether the viewer's date range narrowed this tile (dates.go).
+	Dated bool `json:"dated,omitempty"`
 	// Display is how a dataset tile's columns are shown (datasets.go).
 	Display map[string]model.Display `json:"display,omitempty"`
 }

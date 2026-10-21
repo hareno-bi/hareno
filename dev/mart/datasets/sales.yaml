@@ -4,6 +4,7 @@
 name: sales
 connection: mart
 timezone: Asia/Hong_Kong
+date: ordered_at  # what a dashboard's date range narrows
 root: orders
 tables:
   orders:

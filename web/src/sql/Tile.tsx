@@ -20,6 +20,8 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
   const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge' || s.kind === 'histogram') && s.ys.length && s.kind !== 'kpi' && (mapReady || !maps(s.kind)) ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey, mapReady])
   if (show === 'table') return <Table result={result} />
   if (show === 'matrix') return matrix ? <MatrixTable result={result} spec={matrix} onPick={onPick} /> : null
+  // no rows (e.g. filtered to nothing): say so, not that columns are missing (with no rows, none look numeric)
+  if (show === 'chart' && result.rows.length === 0) return <div className="state empty">No data for the current filters.</div>
   if (show === 'chart' && s.kind === 'kpi' && s.ys.length) return <Kpi result={result} spec={s} />
   if (show === 'chart' && maps(s.kind) && !mapReady) return <div className="state loading">Loading the map…</div>
   if (!option) return <div className="state">Pick a column for X and at least one numeric column for Y.</div>
