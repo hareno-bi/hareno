@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, maps, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { countries, type Country } from './maps'
 import { examples } from './examples'
 import Share from './Share'
 import TileOutput from './Tile'
@@ -42,7 +43,7 @@ const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open }
 const saveable = (t: TileDef): TileDef => ({
   title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide,
   ...(t.dataset ? { dataset: { dataset: t.dataset.dataset, dimensions: t.dataset.dimensions, measures: t.dataset.measures } } : {}),
-  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}) },
+  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}), ...(t.chart.map ? { map: t.chart.map } : {}) },
   ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
 // same compares drafts whatever their key order (the database keeps its own)
@@ -361,7 +362,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
   const nums = result.columns.filter((_, i) => isNum(result, i))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
-  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps',
+  const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps', map: 'Places', pointmap: 'Names',
     sunburst: 'Outer ring', sankey: 'From', chord: 'From', radar: 'Spokes', calendar: 'Dates' } as Partial<Record<Kind, string>>)[spec.kind]
   const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
   const splitName = ({ treemap: 'Group by', heatmap: 'Down', sunburst: 'Inner ring', sankey: 'To', chord: 'To' } as Partial<Record<Kind, string>>)[spec.kind] ?? 'Series by'
@@ -381,7 +382,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>}
-      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : spec.kind === 'candlestick' ? 'Open, close, low, high' : 'Values'}>
+      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : spec.kind === 'candlestick' ? 'Open, close, low, high' : spec.kind === 'pointmap' ? 'Longitude, latitude, size' : 'Values'}>
         {nums.length === 0 && <span className="muted">no number columns</span>}
         {nums.map((c) => (
           <label key={c} className="pick">
@@ -391,6 +392,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           </label>
         ))}
       </Field>
+      {maps(spec.kind) && <MapPicker value={spec.map ?? 'world'} set={(map) => set({ map: map === 'world' ? undefined : map })} />}
       {spec.kind === 'gauge' && result.display?.[spec.ys[0]]?.format !== 'percent' && (
         <Field label="Maximum">
           <input type="number" aria-label="Gauge maximum" min={0} className="num-input" value={spec.max ?? ''}
@@ -413,6 +415,20 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
 // measuresOnly keeps a dataset tile's chart values to its measures: a value picked while only
 // a numeric field (an order number, say) was ticked gives way when a measure is ticked.
 const measuresOnly = (c: Spec, p?: Pick): Spec => (p ? { ...c, ys: c.ys.filter((y) => p.measures.includes(y)) } : c)
+
+// MapPicker picks a map's shapes: the world's countries, or a country's states or provinces.
+function MapPicker({ value, set }: { value: string; set: (map: string) => void }) {
+  const [list, setList] = useState<Country[]>([])
+  useEffect(() => { countries().then(setList, () => {}) }, [])
+  return (
+    <Field label="Map">
+      <select aria-label="Map" value={value} onChange={(e) => set(e.target.value)}>
+        <option value="world">World: countries</option>
+        {list.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.states} areas)</option>)}
+      </select>
+    </Field>
+  )
+}
 
 // usePivot runs a matrix tile's query totalled as the matrix asks, whenever its rows or matrix change.
 function usePivot(t: Edit, connection: string, onSignedOut: () => void) {

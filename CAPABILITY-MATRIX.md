@@ -137,7 +137,7 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Have |
 | Waterfall | ✓ | – | – | ✓ (stacked-bar method) | – | Have |
 | Ribbon | ✓ | – | – | – | – | Launch |
-| Filled map and point map | ✓ | ✓ | – | ✓ (needs map shapes) | ✓ | Launch |
+| Filled map and point map | ✓ | ✓ | – | ✓ (needs map shapes) | ✓ | Have (to state/province level) |
 | Histogram | – | ✓ | – | ✓ | – | Have |
 | Box plot | – | ✓ | – | ✓ | ✓ | Have |
 | Gantt | – | ✓ | – | ✓ (custom series) | – | Launch |
@@ -155,7 +155,12 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 Owner decision 2026-10-15: all 34 at launch, custom charts later. Notes for the Phase 3 plan:
 
 - **One chart library.** Draw the charts that ECharts lacks (packed bubbles, waffle, marimekko, bump, ribbon) with ECharts custom series rather than adding Nivo, so that theming, click handling and accessibility are built once (ARCHITECTURE-PLAN §7.1).
-- **Maps** need region boundary data with a free licence (for example Natural Earth, public domain) and a rule for matching the mart's place names to it.
+- **Maps** (owner decisions 2026-10-21):
+  - **Depth: countries and states/provinces only.** Shapes are Natural Earth v5.1.2 (public domain, safe to sell): 242 countries, and the states or provinces of 214 countries, Hong Kong's 18 districts among them. Rebuilt by `web/scripts/maps.mjs`; a dashboard loads only the map it shows.
+  - **Deeper levels later.** Districts below state/province need a shape file per country (Japan: MLIT N03, CC BY 4.0; Taiwan: Ministry of the Interior, Open Government Data License; both need a credit). Street-level points need map tiles: self-hosted (Protomaps, OpenStreetMap data), since OpenStreetMap's own tile servers forbid this use, and coordinates in the data.
+  - **Not used:** the Hong Kong government's district file (its terms forbid resale), GADM (non-commercial), geoBoundaries files taken from OpenStreetMap (share-alike) unless chosen on purpose.
+  - **Place names** match a map's English name, local and other names (Japanese, Chinese) and codes (ISO, postal), ignoring case; values that match nothing are listed under the map. Natural Earth's wrong Chinese names for Hong Kong's districts are replaced in the build script.
+  - **Disputed borders.** The default is Natural Earth's: borders as they work on the ground, as Power BI's default "Unified" view and Mapbox's (Tableau's) default do. Every map says "Boundaries: Natural Earth. They do not imply endorsement." Proposed, not yet decided: a per-company "worldview" setting using Natural Earth's 31 country views (China, India, Japan, Taiwan and others). Publishing maps in mainland China needs government map approval: legal advice before selling there.
 - **The AI visuals are not charts.** Key influencers needs statistical analysis on the server; Q&A needs natural-language questions turned into dataset queries under the same row security. Decomposition tree is drill-down shown as a tree and is ordinary work. Each needs its own design before Phase 3 estimates.
 - **Effort.** 25 new chart types at about 2 to 3 days each (picker settings, both themes, phone layout, accessibility alternative, tests) is roughly 10 to 15 developer-weeks, before the AI visuals. Re-estimate the visualization workstream at the start of Phase 3.
 
