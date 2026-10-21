@@ -65,7 +65,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 
 | | Capability | Test | Today |
 |---|---|---|---|
-| Launch | Chart catalog (D1) in the signed-off look, light and dark | Each type renders the sample data in both themes; screenshots signed off | Seven chart types, signed-off look |
+| Launch | Chart catalog (D1) in the signed-off look, light and dark | Each type renders the sample data in both themes; screenshots signed off | 37 chart types, all on the Chart samples page in every style, light and dark; screenshots not yet signed off. AI visuals not started |
 | Launch | Number formats from the dataset on axes, tooltips and cells | Margin shows as 61.8% everywhere | Done |
 | Launch | Table and matrix: subtotals, grand total, up to 3 row levels and 1 column level, sticky headers | Q15 matrix through the dataset | Done |
 | Launch | Conditional formatting on table and matrix cells (colour by value) | A rule colours negative profit red | Not started |
@@ -136,20 +136,20 @@ Built in only: Power BI's marketplace "custom visuals" and Tableau's workarounds
 | Treemap | ✓ | ✓ | – | ✓ | ✓ | Have |
 | Heat map (grid coloured by value) | via matrix colours | ✓ | – | ✓ | ✓ | Have |
 | Waterfall | ✓ | – | – | ✓ (stacked-bar method) | – | Have |
-| Ribbon | ✓ | – | – | – | – | Launch |
+| Ribbon | ✓ | – | – | – | – | Have |
 | Filled map and point map | ✓ | ✓ | – | ✓ (needs map shapes) | ✓ | Have (to state/province level) |
 | Histogram | – | ✓ | – | ✓ | – | Have |
 | Box plot | – | ✓ | – | ✓ | ✓ | Have |
-| Gantt | – | ✓ | – | ✓ (custom series) | – | Launch |
+| Gantt | – | ✓ | – | ✓ (custom series) | – | Have |
 | Bullet graph | – | ✓ | – | ✓ (custom series) | ✓ | Have |
-| Packed bubbles / circle packing | – | ✓ | – | – | ✓ | Launch |
+| Packed bubbles / circle packing | – | ✓ | – | – | ✓ | Have |
 | Sunburst | – | – | – | ✓ | ✓ | Have |
 | Sankey (flows) | – | – | – | ✓ | ✓ | Have |
 | Radar | – | – | – | ✓ | ✓ | Have |
 | Calendar heat map | – | – | – | ✓ | ✓ | Have |
 | Candlestick (finance) | – | – | – | ✓ | – | Have |
 | Chord, beeswarm | – | – | – | ✓ (ECharts 6) | ✓ | Have |
-| Waffle, marimekko, bump | – | – | – | – | ✓ | Launch |
+| Waffle, marimekko, bump | – | – | – | – | ✓ | Have |
 | AI visuals (key influencers, decomposition tree, Q&A) | ✓ | partly | – | – | – | Launch |
 
 Owner decision 2026-10-15: all 34 at launch, custom charts later. Notes for the Phase 3 plan:

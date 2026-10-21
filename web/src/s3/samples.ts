@@ -23,7 +23,7 @@ const display: Labels = {
   first: { label: 'First month', format: 'integer' }, last: { label: 'Last month', format: 'integer' }, low: { label: 'Lowest month', format: 'integer' },
   high: { label: 'Highest month', format: 'integer' }, avg_weight: { label: 'Average weight (kg)', format: 'integer' }, avg_hours: { label: 'Average hours', format: 'number' },
   country: { label: 'Country' }, district: { label: 'District' }, airport: { label: 'Airport' }, lon: { label: 'Longitude' }, lat: { label: 'Latitude' },
-  change: { label: 'Change on prior 12 months', format: 'integer' },
+  change: { label: 'Change on prior 12 months', format: 'integer' }, task: { label: 'Task' }, team: { label: 'Team' }, start: { label: 'Start' }, end: { label: 'End' },
 }
 const res = (columns: string[], rows: Value[][]): Result => ({ columns, rows, truncated: false, display })
 const spec = (kind: Kind, x: string, ys: string[], split = '', more: Partial<Spec> = {}): Spec => ({ kind, x, ys, split, ...more })
@@ -108,6 +108,16 @@ export function samples(d: Data): Sample[] {
     { title: 'Hours in terminal by flow', sub: 'Beeswarm', wide: true, result: shipments, spec: spec('beeswarm', 'flow', ['hours']) },
     { title: 'Export tonnes by destination (sample places)', sub: 'Filled map, world', wide: true, result: countries, spec: spec('map', 'country', ['tonnes']) },
     { title: 'Truck pick-ups by district (sample places)', sub: 'Filled map, Hong Kong districts', result: districts, spec: spec('map', 'district', ['trucks'], '', { map: 'HKG' }) },
+    { title: 'Cargo types ranked by month', sub: 'Bump', wide: true, result: cargo, spec: spec('bump', 'month', ['tonnes'], 'cargo') },
+    { title: 'Cargo types by month, ranked', sub: 'Ribbon', wide: true, result: res(cargo.columns, cargo.rows.filter((r) => last12.slice(-6).includes(String(r[0])))), spec: spec('ribbon', 'month', ['tonnes'], 'cargo') },
+    { title: 'Trucks by weekday and part of day', sub: 'Marimekko', result: trucks, spec: spec('marimekko', 'day', ['trucks'], 'part') },
+    { title: 'Cargo mix, last 12 months', sub: 'Waffle', result: cargoYear, spec: spec('waffle', 'cargo', ['tonnes']) },
+    { title: 'Top 10 airlines', sub: 'Packed bubbles', result: airlines, spec: spec('packed', 'airline', ['tonnes']) },
+    { title: 'Terminal upgrade plan (sample tasks)', sub: 'Gantt', wide: true, result: res(['task', 'team', 'start', 'end'], [
+      ['Survey the docks', 'Planning', '2026-01-05', '2026-01-30'], ['Order racking', 'Purchasing', '2026-01-26', '2026-03-13'],
+      ['Rebuild dock 1', 'Works', '2026-02-16', '2026-04-10'], ['Rebuild dock 2', 'Works', '2026-04-06', '2026-05-29'],
+      ['Train staff', 'Operations', '2026-05-04', '2026-06-12'], ['Go live', 'Operations', '2026-06-15', '2026-06-19']]),
+      spec: spec('gantt', 'task', ['start', 'end'], 'team') },
     { title: 'Tonnes by airport (sample places)', sub: 'Point map', result: airports, spec: spec('pointmap', 'airport', ['lon', 'lat', 'tonnes']) },
   ]
 }

@@ -2,6 +2,7 @@ import type { EChartsCoreOption } from 'echarts/core'
 import { fmtCompact, fmtPct, fmtWhole, fmtYield } from '../s3/format'
 import { treatment, type Style, type Tokens } from '../s3/theme'
 import { mapOf, placeOf } from './maps'
+import { pack } from '../s3/series'
 
 // A query result and the chart settings built on it (SQL editor and saved reports).
 export type Value = string | number | boolean | null
@@ -23,7 +24,8 @@ export const kinds = {
   line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', funnel: 'Funnel', treemap: 'Treemap', heatmap: 'Heat map', scatter: 'Scatter', bubble: 'Bubble',
   waterfall: 'Waterfall', histogram: 'Histogram', boxplot: 'Box plot', bullet: 'Bullet',
   sunburst: 'Sunburst', sankey: 'Sankey', chord: 'Chord', radar: 'Radar', calendar: 'Calendar heat map', candlestick: 'Candlestick', beeswarm: 'Beeswarm',
-  map: 'Filled map', pointmap: 'Point map', kpi: 'KPI card', gauge: 'Gauge',
+  map: 'Filled map', pointmap: 'Point map', bump: 'Bump', ribbon: 'Ribbon', marimekko: 'Marimekko', waffle: 'Waffle', packed: 'Packed bubbles',
+  gantt: 'Gantt', kpi: 'KPI card', gauge: 'Gauge',
 } as const
 export type Kind = keyof typeof kinds
 // max: a gauge's maximum (unset: 100% for a percent, else a round number above the value);
@@ -34,17 +36,19 @@ export const maps = (k: Kind) => k === 'map' || k === 'pointmap'
 // and waterfalls share one out; flows (Sankey, chord) are sized by one; histograms, box plots and
 // beeswarms show how one spreads over the rows
 export const oneValue = (k: Kind) => ['pie', 'kpi', 'gauge', 'funnel', 'treemap', 'sunburst', 'heatmap', 'calendar', 'waterfall',
-  'sankey', 'chord', 'histogram', 'boxplot', 'beeswarm', 'map'].includes(k)
+  'sankey', 'chord', 'histogram', 'boxplot', 'beeswarm', 'map', 'bump', 'ribbon', 'marimekko', 'waffle', 'packed'].includes(k)
 // several values, in the order picked: a combo's columns and lines, a bubble's height and size, a
 // bullet's value and target, a candlestick's open, close, low and high, a point's longitude,
-// latitude and size
-const several = (k: Kind) => ({ combo: 2, bubble: 2, bullet: 2, candlestick: 4, pointmap: 3 } as Partial<Record<Kind, number>>)[k]
+// latitude and size, a Gantt bar's start and end (dates)
+const several = (k: Kind) => ({ combo: 2, bubble: 2, bullet: 2, candlestick: 4, pointmap: 3, gantt: 2 } as Partial<Record<Kind, number>>)[k]
 // flows go from X to "Series by"
 const flows = (k: Kind) => k === 'sankey' || k === 'chord'
 // "Series by" splits one value into a series per value of a column (a treemap's groups, a heat
 // map's rows); a combo's series are its values, a bubble's values are its height and size
-export const splits = (k: Kind) => ['treemap', 'sunburst', 'heatmap', 'sankey', 'chord'].includes(k) || (!oneValue(k) && !several(k))
+export const splits = (k: Kind) => ['treemap', 'sunburst', 'heatmap', 'sankey', 'chord', 'bump', 'ribbon', 'marimekko', 'packed', 'gantt'].includes(k) || (!oneValue(k) && !several(k))
 
+// a date column: its values are text starting YYYY-MM-DD (a Gantt bar's start and end)
+export const isDate = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || /^\d{4}-\d\d-\d\d/.test(String(row[i])))
 export const isNum = (r: Result, i: number) => r.rows.some((row) => row[i] !== null) && r.rows.every((row) => row[i] === null || typeof row[i] === 'number')
 
 // fit keeps the chart choices that still apply to a new result, and picks defaults for the rest:
@@ -61,11 +65,13 @@ export function fit(s: Spec, r: Result): Spec {
     : s.kind === 'bubble' ? (nums.includes(s.x) ? s.x : nums[0] ?? '')
     : s.kind === 'calendar' && !has(s.x) ? (r.columns.find((_, i) => /^\d{4}-\d\d-\d\d/.test(String(r.rows[0]?.[i]))) ?? text ?? '') // a date column
     : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
-  const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
+  // a Gantt's values are its start and end dates
+  const vals = s.kind === 'gantt' ? r.columns.filter((_, i) => isDate(r, i)) : nums
+  const ys = s.ys.filter((y) => vals.includes(y) && y !== x)
   const one = oneValue(s.kind), n = several(s.kind)
   // a point map's values default to its longitude and latitude columns, by name
   const geo = (c: string) => (/lon|lng/i.test(c) ? 0 : /lat/i.test(c) ? 1 : 2)
-  const pool = s.kind === 'pointmap' ? [...nums].sort((a, b) => geo(a) - geo(b)) : nums
+  const pool = s.kind === 'pointmap' ? [...nums].sort((a, b) => geo(a) - geo(b)) : vals
   return {
     kind: s.kind,
     x,
@@ -212,6 +218,23 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       xAxis: { type: 'category', data: cats, jitter: 48, jitterOverlap: false, jitterMargin: 2 },
       yAxis: { type: 'value', scale: true, axisLabel },
       series: [{ type: 'scatter', symbolSize: 7, itemStyle: { opacity: 0.8 }, data: r.rows.map((row) => [label(row[xi]), row[col(s.ys[0])]]) }],
+    }
+  }
+
+  if (s.kind === 'gantt') {
+    // a bar per row from its start to its end, a row per X; coloured by "Series by" when set
+    const [a, b] = s.ys.map(col), tasks = [...new Set(r.rows.map((row) => label(row[xi])))]
+    const groups = si >= 0 ? [...new Set(r.rows.map((row) => label(row[si])))] : ['']
+    const time = (v: Value) => (typeof v === 'string' ? Date.parse(v.length === 10 ? v + 'T00:00:00' : v) : NaN) // a date at local midnight
+    const ok = (row: Value[]) => !isNaN(time(row[a])) && !isNaN(time(row[b]))
+    return {
+      ...anim, grid, legend: si >= 0 ? { ...legend, type: 'scroll' } : undefined,
+      tooltip: { trigger: 'item', formatter: (p: { name: string; data: { from: string; to: string } }) => `${p.name}<br/>${p.data.from} to ${p.data.to}` },
+      xAxis: { type: 'time' }, yAxis: { type: 'category', data: tasks, inverse: true },
+      series: groups.map((g) => ({ type: 'custom', renderItem: 'hareno.gantt', name: g || caption(d, s.x), encode: { x: [0, 1], y: 2 },
+        itemPayload: { radius: Math.min(style.chart.barRadius, 4) },
+        data: r.rows.filter((row) => ok(row) && (si < 0 || label(row[si]) === g))
+          .map((row) => ({ name: label(row[xi]), from: label(row[a]), to: label(row[b]), value: [time(row[a]), time(row[b]), tasks.indexOf(label(row[xi]))] })) })),
     }
   }
 
@@ -418,6 +441,46 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     }
   }
 
+  if (s.kind === 'waffle') {
+    // 100 squares shared out by X; largest remainders, so they add up to 100
+    const show = number(d, s.ys[0]), total = shares.reduce((t, x) => t + Math.max(0, x.value), 0) || 1
+    const exact = shares.map((x) => (Math.max(0, x.value) / total) * 100), cells = exact.map(Math.floor)
+    exact.map((v, i) => [v - cells[i], i]).sort((a, b) => b[0] - a[0]).slice(0, 100 - cells.reduce((a, b) => a + b, 0)).forEach(([, i]) => cells[i]++)
+    let at = 0
+    return {
+      ...anim, legend: { bottom: 0, type: 'scroll' },
+      tooltip: { trigger: 'item', formatter: (p: { seriesName: string; seriesIndex: number; data: { raw: number } }) => `${p.seriesName}<br/>${show(p.data.raw)}, ${cells[p.seriesIndex]} of 100 squares` },
+      series: shares.map((x, i) => {
+        const from = at
+        at += cells[i]
+        return { type: 'custom', renderItem: 'hareno.waffle', coordinateSystem: 'none', name: x.name, itemPayload: { top: 4, bottom: 28, radius: Math.min(style.chart.barRadius, 3) },
+          data: Array.from({ length: cells[i] }, (_, k) => ({ name: x.name, raw: x.value, value: [from + k] })) }
+      }),
+    }
+  }
+
+  if (s.kind === 'packed') {
+    // a circle per X, its area its value, packed together; coloured by "Series by" when set
+    const show = number(d, s.ys[0]), group = new Map<string, string>()
+    if (si >= 0) r.rows.forEach((row) => group.has(label(row[xi])) || group.set(label(row[xi]), label(row[si])))
+    const all = shares.filter((x) => x.value > 0).sort((a, b) => b.value - a.value), items = all.slice(0, 100)
+    const radii = items.map((x) => Math.sqrt(x.value)), at = pack(radii)
+    const extent = [Math.min(...at.map((p, i) => p[0] - radii[i])), Math.min(...at.map((p, i) => p[1] - radii[i])),
+      Math.max(...at.map((p, i) => p[0] + radii[i])), Math.max(...at.map((p, i) => p[1] + radii[i]))]
+    const groups = si >= 0 ? [...new Set(items.map((x) => group.get(x.name) ?? ''))] : [caption(d, s.ys[0])]
+    return {
+      ...anim, legend: si >= 0 ? { ...legend, type: 'scroll' } : undefined,
+      title: all.length > items.length ? { text: `The largest 100 of ${all.length} shown`, right: 0, bottom: 0, textStyle: { fontSize: 10, fontWeight: 'normal', color: token('--muted') } } : undefined,
+      tooltip: { trigger: 'item', formatter: (p: { name: string; data: { raw: number } }) => `${p.name}<br/>${show(p.data.raw)}` },
+      series: groups.map((g) => {
+        const mine = items.map((x, i) => [x, i] as const).filter(([x]) => si < 0 || group.get(x.name) === g)
+        return { type: 'custom', renderItem: 'hareno.packed', coordinateSystem: 'none', name: g,
+          itemPayload: { extent, top: si >= 0 ? 28 : 4, color: token('--on-series'), names: mine.map(([x]) => x.name) },
+          data: mine.map(([x, i]) => ({ name: x.name, raw: x.value, value: [at[i][0], at[i][1], radii[i]] })) }
+      }),
+    }
+  }
+
   if (s.kind === 'pie') {
     return {
       ...anim, legend: { bottom: 0, type: 'scroll' }, tooltip: { trigger: 'item', ...fmt(s.ys[0]) },
@@ -445,6 +508,71 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
     }
   }
   const names = [...series.keys()]
+
+  if (s.kind === 'bump') {
+    // each X's series ranked by value, 1 the largest; a line per series through its ranks
+    const cats = [...xs.keys()], show = number(d, s.ys[0]), rank = new Map<string, Map<string, number>>()
+    for (const c of cats) names.filter((n) => series.get(n)!.has(c)).sort((a, b) => series.get(b)!.get(c)! - series.get(a)!.get(c)!)
+      .forEach((n, i) => (rank.get(n) ?? rank.set(n, new Map()).get(n)!).set(c, i + 1))
+    return {
+      ...anim, grid: { ...grid, right: 96 }, legend: { ...legend, type: 'scroll' },
+      tooltip: { trigger: 'item', formatter: (p: { seriesName: string; name: string; data: { value: number; raw: number } }) => `${p.seriesName}, ${p.name}<br/>No. ${p.data.value}: ${show(p.data.raw)}` },
+      xAxis: { type: 'category', data: cats, boundaryGap: false },
+      yAxis: { type: 'value', inverse: true, min: 1, max: Math.max(names.length, 1), interval: 1, axisLabel: { formatter: (v: number) => `No. ${v}` } },
+      series: names.map((n, i) => ({ ...line(i), areaStyle: undefined, symbol: 'circle', symbolSize: 8, showSymbol: true, name: n,
+        endLabel: { show: true, formatter: '{a}', color: token('--text') },
+        data: cats.map((c) => (rank.get(n)?.has(c) ? { value: rank.get(n)!.get(c), raw: series.get(n)!.get(c) } : null)) })),
+    }
+  }
+
+  if (s.kind === 'ribbon') {
+    // each X a column of its series stacked by size, largest on top; ribbons join a series' segments
+    const cats = [...xs.keys()], show = number(d, s.ys[0])
+    const pos = cats.map((c) => {
+      const m = new Map<string, [number, number]>()
+      let y = 0
+      for (const n of names.filter((n) => (series.get(n)!.get(c) ?? 0) > 0).sort((a, b) => series.get(a)!.get(c)! - series.get(b)!.get(c)!)) {
+        const v = series.get(n)!.get(c)!
+        m.set(n, [y, y + v])
+        y += v
+      }
+      return m
+    })
+    return {
+      ...anim, grid, legend: { ...legend, type: 'scroll' },
+      tooltip: { trigger: 'item', formatter: (p: { seriesName: string; name: string; data: { raw: number } }) => `${p.seriesName}, ${p.name}<br/>${show(p.data.raw)}` },
+      xAxis: { type: 'category', data: cats }, yAxis: { type: 'value', axisLabel },
+      series: names.map((n) => ({ type: 'custom', renderItem: 'hareno.ribbon', name: n, encode: { x: 0, y: [1, 2] },
+        data: cats.flatMap((c, j) => {
+          const here = pos[j].get(n), next = pos[j + 1]?.get(n)
+          return here ? [{ name: c, raw: series.get(n)!.get(c), value: [j, here[0], here[1], next?.[0] ?? null, next?.[1] ?? null] }] : []
+        }) })),
+    }
+  }
+
+  if (s.kind === 'marimekko') {
+    // each X a column as wide as its share of the total; its series stacked, each as tall as its share of the column
+    const cats = [...xs.keys()], show = number(d, s.ys[0])
+    const colTotal = cats.map((c) => names.reduce((t, n) => t + Math.max(0, series.get(n)!.get(c) ?? 0), 0)), total = colTotal.reduce((a, b) => a + b, 0) || 1
+    let x = 0
+    const cols = colTotal.map((t) => [x, (x += t / total)])
+    const filled = cats.map(() => 0)
+    return {
+      ...anim, grid: { ...grid, bottom: 24 }, legend: { ...legend, type: 'scroll' },
+      tooltip: { trigger: 'item', formatter: (p: { seriesName: string; name: string; data: { raw: number; share: number } }) =>
+        `${p.seriesName}, ${p.name}<br/>${show(p.data.raw)}, ${fmtPct(p.data.share)} of ${p.name}` },
+      xAxis: { type: 'value', min: 0, max: 1, axisLabel: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
+      yAxis: { type: 'value', min: 0, max: 1, axisLabel: { formatter: fmtPct } },
+      series: names.map((n) => ({ type: 'custom', renderItem: 'hareno.marimekko', name: n, encode: { x: [0, 1], y: [2, 3] }, itemPayload: { columns: cats, color: token('--muted') },
+        data: cats.flatMap((c, j) => {
+          const v = Math.max(0, series.get(n)!.get(c) ?? 0)
+          if (!v || !colTotal[j]) return []
+          const y0 = filled[j], h = v / colTotal[j]
+          filled[j] += h
+          return [{ name: c, raw: v, share: h, value: [cols[j][0], cols[j][1], y0, y0 + h, j] }]
+        }) })),
+    }
+  }
 
   if (s.kind === 'radar') {
     // X values are the spokes, one shape per value (or per "Series by" value), all on one scale
