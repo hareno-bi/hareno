@@ -1,6 +1,7 @@
 import type { EChartsCoreOption } from 'echarts/core'
 import { fmtCompact, fmtPct, fmtWhole, fmtYield } from '../s3/format'
 import { treatment, type Style, type Tokens } from '../s3/theme'
+import { mapOf, placeOf } from './maps'
 
 // A query result and the chart settings built on it (SQL editor and saved reports).
 export type Value = string | number | boolean | null
@@ -22,19 +23,22 @@ export const kinds = {
   line: 'Line', area: 'Area', stackedArea: 'Stacked area', combo: 'Column and line', pie: 'Pie', funnel: 'Funnel', treemap: 'Treemap', heatmap: 'Heat map', scatter: 'Scatter', bubble: 'Bubble',
   waterfall: 'Waterfall', histogram: 'Histogram', boxplot: 'Box plot', bullet: 'Bullet',
   sunburst: 'Sunburst', sankey: 'Sankey', chord: 'Chord', radar: 'Radar', calendar: 'Calendar heat map', candlestick: 'Candlestick', beeswarm: 'Beeswarm',
-  kpi: 'KPI card', gauge: 'Gauge',
+  map: 'Filled map', pointmap: 'Point map', kpi: 'KPI card', gauge: 'Gauge',
 } as const
 export type Kind = keyof typeof kinds
-// max: a gauge's maximum (unset: 100% for a percent, else a round number above the value)
-export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number }
+// max: a gauge's maximum (unset: 100% for a percent, else a round number above the value);
+// map: a map's shapes, 'world' (unset) or a country's code for its states or provinces
+export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number; map?: string }
+export const maps = (k: Kind) => k === 'map' || k === 'pointmap'
 // one value: KPI cards and gauges show one; pies, funnels, treemaps, sunbursts, heat maps, calendars
 // and waterfalls share one out; flows (Sankey, chord) are sized by one; histograms, box plots and
 // beeswarms show how one spreads over the rows
 export const oneValue = (k: Kind) => ['pie', 'kpi', 'gauge', 'funnel', 'treemap', 'sunburst', 'heatmap', 'calendar', 'waterfall',
-  'sankey', 'chord', 'histogram', 'boxplot', 'beeswarm'].includes(k)
+  'sankey', 'chord', 'histogram', 'boxplot', 'beeswarm', 'map'].includes(k)
 // several values, in the order picked: a combo's columns and lines, a bubble's height and size, a
-// bullet's value and target, a candlestick's open, close, low and high
-const several = (k: Kind) => ({ combo: 2, bubble: 2, bullet: 2, candlestick: 4 } as Partial<Record<Kind, number>>)[k]
+// bullet's value and target, a candlestick's open, close, low and high, a point's longitude,
+// latitude and size
+const several = (k: Kind) => ({ combo: 2, bubble: 2, bullet: 2, candlestick: 4, pointmap: 3 } as Partial<Record<Kind, number>>)[k]
 // flows go from X to "Series by"
 const flows = (k: Kind) => k === 'sankey' || k === 'chord'
 // "Series by" splits one value into a series per value of a column (a treemap's groups, a heat
@@ -59,15 +63,19 @@ export function fit(s: Spec, r: Result): Spec {
     : has(s.x) ? s.x : (text ?? r.columns[0] ?? '')
   const ys = s.ys.filter((y) => nums.includes(y) && y !== x)
   const one = oneValue(s.kind), n = several(s.kind)
+  // a point map's values default to its longitude and latitude columns, by name
+  const geo = (c: string) => (/lon|lng/i.test(c) ? 0 : /lat/i.test(c) ? 1 : 2)
+  const pool = s.kind === 'pointmap' ? [...nums].sort((a, b) => geo(a) - geo(b)) : nums
   return {
     kind: s.kind,
     x,
-    ys: n && ys.length < n ? [...ys, ...nums.filter((c) => c !== x && !ys.includes(c))].slice(0, n)
-      : (ys.length ? ys : nums.filter((c) => c !== x)).slice(0, one ? 1 : n && s.kind !== 'combo' ? n : undefined),
+    ys: n && ys.length < n ? [...ys, ...pool.filter((c) => c !== x && !ys.includes(c))].slice(0, n)
+      : (ys.length ? ys : pool.filter((c) => c !== x)).slice(0, one ? 1 : n && s.kind !== 'combo' ? n : undefined),
     // a flow needs somewhere to go: the next text column
     split: has(s.split) && s.split !== x && splits(s.kind) ? s.split
       : flows(s.kind) ? (r.columns.find((c, i) => c !== x && !isNum(r, i)) ?? '') : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
+    ...(maps(s.kind) && s.map && s.map !== 'world' ? { map: s.map } : {}),
   }
 }
 
@@ -366,6 +374,45 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
         type: 'heatmap', label: { show: true, formatter: (p: { value: number[] }) => show(p.value[2]) }, itemStyle: { borderColor: token('--surface'), borderWidth: style.chart.heatmapGap, borderRadius: Math.min(style.chart.barRadius, 4) },
         data: [...cells].map(([k, v]) => { const [x, y] = JSON.parse(k); return { name: x, value: [xs.indexOf(x), ys.indexOf(y), v] } }),
       }],
+    }
+  }
+
+  if (maps(s.kind)) {
+    // a country's or state's shape coloured by its value, or a point per row at its longitude and
+    // latitude; places not on the map are listed under it
+    const id = s.map ?? 'world', show = number(d, s.ys[0])
+    if (!mapOf(id)) return {}
+    const small = { fontSize: 10, fontWeight: 'normal', color: token('--muted') }
+    const notes = [{ text: 'Boundaries: Natural Earth. They do not imply endorsement.', right: 0, bottom: 0, textStyle: small }]
+    const land = { map: id, roam: true, scaleLimit: { min: 1, max: 12 }, itemStyle: { areaColor: token('--sub'), borderColor: token('--surface'), borderWidth: 0.6 } }
+    if (s.kind === 'pointmap') {
+      const [lon, lat, size] = s.ys.map(col)
+      const big = Math.max(...r.rows.map((row) => Math.abs(Number(row[size]) || 0))) || 1
+      return {
+        ...anim, title: notes, tooltip: { trigger: 'item', formatter: (p: { name: string; value: Value[] }) => (size >= 0 ? `${p.name}<br/>${number(d, s.ys[2])(Number(p.value[2]))}` : p.name) },
+        geo: { ...land, silent: true },
+        series: [{ type: 'scatter', coordinateSystem: 'geo', itemStyle: { color: colour(0), opacity: 0.75 },
+          symbolSize: (v: number[]) => (size >= 0 ? 5 + 25 * Math.sqrt(Math.abs(v[2] ?? 0) / big) : 8),
+          data: r.rows.filter((row) => typeof row[lon] === 'number' && typeof row[lat] === 'number').map((row) => ({ name: label(row[xi]), value: [row[lon], row[lat], size >= 0 ? row[size] : 0] })) }],
+      }
+    }
+    // the map's names shown as the dataset's (nameMap), so a click picks the dataset's value
+    const nameMap: Record<string, string> = {}, missing: string[] = []
+    for (const { name } of shares) {
+      const place = placeOf(id, name)
+      if (place) nameMap[place] = name
+      else missing.push(name)
+    }
+    const found = shares.filter((x) => !missing.includes(x.name)), vals = found.map((x) => x.value)
+    if (missing.length) notes.push({ text: `Not on the map: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` and ${missing.length - 3} more` : ''}`, right: 0, bottom: 14, textStyle: small })
+    return {
+      ...anim, title: notes,
+      tooltip: { trigger: 'item', formatter: (p: { name: string; value: number }) => `${p.name}<br/>${typeof p.value === 'number' && !isNaN(p.value) ? show(p.value) : 'no value'}` },
+      visualMap: {
+        min: Math.min(0, ...vals), max: Math.max(0, ...vals), orient: 'vertical', left: 0, bottom: 0, itemHeight: 100, calculable: false,
+        text: [show(Math.max(0, ...vals)), show(Math.min(0, ...vals))], inRange: { color: [token('--heat-lo'), token('--heat-hi')] }, textStyle: { color: token('--muted') },
+      },
+      series: [{ type: 'map', ...land, nameMap, select: { disabled: true }, emphasis: { label: { show: false }, itemStyle: { areaColor: token('--active') } }, data: found }],
     }
   }
 
