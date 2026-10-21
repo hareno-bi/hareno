@@ -96,6 +96,8 @@ export function roundUp(v: number) {
 }
 
 const label = (v: Value) => (v === null ? '(null)' : String(v))
+// an axis's numbers: short from 10,000 (12K), in full below, where shortening repeats labels (1.1K, 1.1K)
+const fmtAxis = (v: number) => (Math.abs(v) >= 1e4 ? fmtCompact(v) : v.toLocaleString())
 const MAX_SERIES = 24
 
 // chartOption turns rows into an ECharts option. With "Series by", rows become one series per
@@ -106,7 +108,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const xi = col(s.x), si = s.split ? col(s.split) : -1
   const d = r.display
   const fmt = (c: string) => ({ valueFormatter: (v: number) => (typeof v === 'number' ? number(d, c)(v) : v) })
-  const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtCompact }
+  const axisLabel = { formatter: d?.[s.ys[0]]?.format === 'percent' ? fmtPct : fmtAxis }
   const add = (m: Map<string, number>, k: string, v: Value) => m.set(k, (m.get(k) ?? 0) + (typeof v === 'number' ? v : 0))
 
   if (s.kind === 'gauge') {
@@ -139,7 +141,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       tooltip: { trigger: 'item', formatter: (p: { name: string; data: { row: Value[] } }) =>
         [p.name, show(s.x, p.data.row[xi]), show(s.ys[0], p.data.row[up]), ...(size >= 0 ? [show(s.ys[1], p.data.row[size])] : [])].filter(Boolean).join('<br/>') },
       // room around the outer bubbles
-      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true, boundaryGap: ['12%', '12%'], axisLabel: { formatter: d?.[s.x]?.format === 'percent' ? fmtPct : fmtCompact } },
+      xAxis: { type: 'value', name: caption(d, s.x), nameLocation: 'middle', nameGap: 28, scale: true, boundaryGap: ['12%', '12%'], axisLabel: { formatter: d?.[s.x]?.format === 'percent' ? fmtPct : fmtAxis } },
       yAxis: { type: 'value', name: caption(d, s.ys[0]), nameLocation: 'middle', nameGap: 40, scale: true, boundaryGap: ['15%', '15%'], axisLabel },
       series: [{
         type: 'scatter', itemStyle: { opacity: 0.7 }, label: { show: true, position: 'top', formatter: '{b}', color: token('--muted') },
@@ -481,14 +483,14 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const valAxis = pct ? { type: 'value', max: 1, axisLabel: { formatter: fmtPct } } : { type: 'value', axisLabel }
   // a combo's first value is columns on the left axis, the others lines on the right, each in its format
   const combo = k === 'combo' && names.length > 1
-  const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtCompact } }]
+  const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtAxis } }]
   const rad = style.chart.barRadius
   return {
     ...anim, grid, legend: { ...legend, type: 'scroll' }, tooltip: { trigger: 'axis', ...fmt(s.ys[0]) },
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : combo ? comboAxes : valAxis,
     series: names.map((n, i) => {
-      const raw = cats.map((c) => series.get(n)!.get(c) ?? null)
+      const raw = cats.map((c) => series.get(n)!.get(c) ?? (stack ? 0 : null)) // a stack counts a missing value as 0, or its layers break
       const data = pct ? raw.map((v, j) => (v === null || !totals[j] ? null : v / totals[j])) : raw
       const tooltip = pct ? { valueFormatter: (v: number) => (typeof v === 'number' ? fmtPct(v) : v) } : fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
       if (k === 'line' || (combo && i > 0)) return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
