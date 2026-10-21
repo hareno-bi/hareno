@@ -184,3 +184,7 @@ dialog.share h3 { margin-top: 14px; }
 .tile .pivot { height: auto; max-height: 420px; }
 .data-pick { padding: 4px 0 10px; }
 .data-pick .field-controls { max-width: 100%; }
+/* an embedded dashboard (#/embed): no page frame of its own; the host page frames it */
+.embed main { padding: 8px; max-width: none; }
+.embed-signin { margin: 24px auto; }
+.embed-foot { text-align: right; font-size: 12px; margin: 8px 0 0; }

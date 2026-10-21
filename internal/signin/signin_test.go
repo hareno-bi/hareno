@@ -103,3 +103,47 @@ func TestFlow(t *testing.T) {
 		t.Errorf("session still works after logout")
 	}
 }
+
+// TestEmbedded: the sign-in modes of a dashboard embedded in another site. A silent login asks
+// Kiban not to show a page and comes back marked either way; a popup login ends in a page that
+// tells its opener; return goes back to a Hareno page, never to another site.
+func TestEmbedded(t *testing.T) {
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":300}`))
+	}))
+	defer idp.Close()
+	s := &Signin{OAuth: oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{AuthURL: "http://kiban/auth", TokenURL: idp.URL}}, Home: "http://hareno/"}
+	// login starts a login and returns what the callback answers, given Kiban's reply (code or error)
+	login := func(query, reply string) (*url.URL, *httptest.ResponseRecorder) {
+		w := httptest.NewRecorder()
+		s.Login(w, httptest.NewRequest("GET", "/auth/login?"+query, nil))
+		loc, _ := url.Parse(w.Header().Get("Location"))
+		r := httptest.NewRequest("GET", "/auth/callback?"+reply+"&state="+loc.Query().Get("state"), nil)
+		r.AddCookie(w.Result().Cookies()[0])
+		w = httptest.NewRecorder()
+		s.Callback(w, r)
+		return loc, w
+	}
+	ret := url.QueryEscape("#/embed/abc?theme=dark")
+
+	loc, w := login("silent=1&return="+ret, "error=login_required")
+	if loc.Query().Get("prompt") != "none" {
+		t.Errorf("silent login without prompt=none: %s", loc)
+	}
+	if got := w.Header().Get("Location"); w.Code != http.StatusFound || got != "http://hareno/#/embed/abc?theme=dark&signin=needed" {
+		t.Errorf("silent login refused: %d %q", w.Code, got)
+	}
+	if _, w = login("silent=1&return="+ret, "code=x"); w.Header().Get("Location") != "http://hareno/#/embed/abc?theme=dark&signin=done" {
+		t.Errorf("silent login done: %q", w.Header().Get("Location"))
+	}
+	if loc, w = login("popup=1", "code=x"); loc.Query().Get("prompt") != "" || w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "postMessage('hareno:signed-in'") {
+		t.Errorf("popup login: %d %s", w.Code, w.Body)
+	}
+	if _, w = login("return="+url.QueryEscape("https://evil.example/"), "code=x"); w.Header().Get("Location") != "http://hareno/" {
+		t.Errorf("return to another site: %q", w.Header().Get("Location"))
+	}
+	if _, w = login("return="+ret, "error=access_denied"); w.Code != http.StatusBadGateway {
+		t.Errorf("an ordinary login that Kiban refuses: %d", w.Code)
+	}
+}

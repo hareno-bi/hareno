@@ -7,6 +7,9 @@ server {
     gzip on;
     gzip_types application/json application/javascript text/css text/csv;
     add_header X-Content-Type-Options nosniff;
+    # who may show Hareno in a frame: Hareno itself and the sites embedding dashboards (HARENO_EMBED_HOSTS,
+    # space-separated origins); browsers refuse every other site, so no page can trick a user's clicks
+    add_header Content-Security-Policy "frame-ancestors 'self' ${HARENO_EMBED_HOSTS}" always;
     location / { try_files $uri /index.html; }
     location ~ ^/api/reports/[^/]+/tiles/[0-9]+/csv$ {  # downloads: streamed, queries up to 5 minutes
         proxy_pass http://127.0.0.1:55453;
@@ -38,4 +41,11 @@ server {
         sub_filter 'http://localhost:55440/' 'http://${HARENO_PUBLIC_HOST}:55451/';
         sub_filter_once off;
     }
+}
+
+# A stand-in for a client's site that embeds dashboards (dev/demo/embed-host): another origin.
+server {
+    listen 55452;
+    root /usr/share/nginx/embed-host;
+    location / { try_files $uri /index.html; }
 }

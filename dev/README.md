@@ -6,6 +6,7 @@
 | App database | `docker compose up -d` | `localhost:55434`, db/user `hareno`, password `dev` |
 | Result cache (Valkey 8.1) | `docker compose up -d` | `localhost:55435`, no auth, not persisted |
 | Public demo (nginx): `web/dist` with the API, and Kiban's login pages | see [Public demo](#public-demo) | `0.0.0.0:55450` and `0.0.0.0:55451`, **public** |
+| Embedding test host: a stand-in for a client's site | see [Embedding](#embedding) | `0.0.0.0:55452`, **public** |
 | Kiban v0.1.2 | `dev/kiban/up.sh` | gateway `http://localhost:55440`, Keycloak `localhost:55441` |
 
 `dev/mart/check.sh` runs the mart's known-answer checks.
@@ -100,3 +101,15 @@ docker compose --profile demo up -d demo
 - Kiban issues tokens for `http://localhost:55440`, so the proxy forwards with that host name and rewrites the replies.
 - Keycloak marks its cookies Secure, which browsers drop on plain HTTP, so the proxy removes the flag.
 - **Dev only.** There is no TLS, so passwords cross the network unencrypted. Use only the seeded dev accounts.
+
+## Embedding
+
+A published dashboard can be shown inside another site, such as a client's report portal: the site puts `https://<hareno>/#/embed/<dashboard id>` in an `<iframe>`.
+
+- **Options** in the address, after `?`: `theme=light` or `dark`, `style=<style id>`, `title=0` to hide the title, `filter.<column>=<value>` to start filtered (for example `filter.region_name=North`), `dates=3m` or `dates=2026-02-01..2026-03-31` to start with a date range (`7d`, `30d`, `3m`, `12m`, `year`, `lastyear`). Row security applies as anywhere: a filter never shows rows the viewer may not see.
+- **Sign-in.** Viewers sign in to Hareno as usual. Signed out, the frame first tries a silent sign-in (`/auth/login?silent=1`): someone already signed in to Kiban, or to Windows where Kiban uses Active Directory, sees the dashboard at once. Otherwise it shows a Sign in button, which opens Kiban's sign-in in a small window that closes itself.
+- **Which sites may frame Hareno** is set where Hareno's pages are served, as `Content-Security-Policy: frame-ancestors 'self' <origins>`; browsers refuse every other site. Here `HARENO_EMBED_HOSTS` (space-separated origins) sets it, by default the test host.
+- **Same site.** Hareno's session cookie is `SameSite=Lax`, so the embedding site and Hareno must share a registrable domain (e.g. `reports.example.com` and `hareno.example.com`); so must Kiban's login pages for the silent sign-in. Browsers block the cookies of a frame from another site. If they do, the frame says so and links to the dashboard in Hareno.
+- **Height.** The frame posts `{ type: 'hareno:height', height }` to the host page whenever its content changes size; the host sets the frame's height, checking the message's origin first.
+- **Test host:** `http://$HARENO_PUBLIC_HOST:55452/?d=<dashboard id>` (`dev/demo/embed-host/index.html`) shows a dashboard as a client's site would.
+

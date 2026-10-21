@@ -3,15 +3,19 @@ import Charts from './s3/Charts'
 import Matrix from './s3/Matrix'
 import { styles, useTheme, type Pref } from './s3/theme'
 import Editor from './sql/Editor'
+import { Embed } from './sql/Embed'
 import { ReportView, Reports } from './sql/Reports'
 import './s3/s3.css'
 
 const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
-type Page = keyof typeof pages | 'report'
-// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix
-const fromHash = (): { page: Page; id?: string } => {
-  const [p, id] = location.hash.slice(2).split('/')
-  return p in pages || p === 'report' ? { page: p as Page, id } : { page: 'sql' }
+type Page = keyof typeof pages | 'report' | 'embed'
+// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix, and
+// #/embed/<report id>?<options>: a published dashboard alone, for a frame in another site (Embed)
+const fromHash = (): { page: Page; id?: string; params: URLSearchParams } => {
+  const [path, query] = location.hash.slice(2).split('?')
+  const [p, id] = path.split('/')
+  const params = new URLSearchParams(query)
+  return p in pages || p === 'report' || p === 'embed' ? { page: p as Page, id, params } : { page: 'sql', params }
 }
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
@@ -34,9 +38,12 @@ function useUser() {
 }
 
 export default function App() {
-  const [{ page, id }, setRoute] = useState(fromHash)
+  const [{ page, id, params }, setRoute] = useState(fromHash)
   const [nav, setNav] = useState(0) // remounts the page on every navigation, e.g. New query from a saved one
-  const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme()
+  const embed = page === 'embed'
+  const theme = params.get('theme')
+  const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme(embed ? {
+    pref: theme === 'light' || theme === 'dark' ? theme : undefined, style: params.get('style') ?? undefined } : {})
   const { user, setUser, demo, signOut } = useUser()
   const signedOut = useCallback(() => setUser(null), [setUser])
   useEffect(() => {
@@ -47,6 +54,13 @@ export default function App() {
     addEventListener('hashchange', on)
     return () => removeEventListener('hashchange', on)
   }, [])
+  if (embed) return (
+    <div className="dash embed" style={vars as CSSProperties}>
+      <main>
+        {id && <Embed id={id} params={params} user={user} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} />}
+      </main>
+    </div>
+  )
   return (
     <>
       <header className="top">

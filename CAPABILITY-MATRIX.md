@@ -96,6 +96,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 | | Capability | Test | Today |
 |---|---|---|---|
 | Launch | Sign-in through Kiban/Keycloak; company boundaries | A user of another company sees nothing | Done |
+| Launch | Embed a dashboard in another site (first client: their report portal), with sign-in through Kiban (silent where Kiban already knows the browser, else a sign-in window) and only listed sites allowed to frame it | A dashboard in a page of another origin signs in, shows the viewer's own rows, sizes itself; a site not listed is refused | Done (`#/embed/<id>`, dev/README "Embedding"); the embedding site must share Hareno's domain |
 | Launch | Row policy from Kiban on view, preview, export and schedules | Exit suite (Q17) plus the schedule test | Done except schedules |
 | Launch | Permissions: viewer, editor, SQL user, dataset user, dataset admin, exporter, data sharer, connection admin | Each permission's allow and deny cases have a test | All but dataset admin and connection admin |
 | Launch | Sharing with people, and with their own data or the sharer's | Done today; tests in place | Done |
