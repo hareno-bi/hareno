@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isNum, kinds, caption, latest, maps, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isDate, isNum, kinds, caption, latest, maps, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { countries, type Country } from './maps'
 import { examples } from './examples'
 import Share from './Share'
@@ -359,13 +359,15 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpec: (s: Spec) => void }) {
-  const nums = result.columns.filter((_, i) => isNum(result, i))
+  // the value choices: number columns, or a Gantt's date columns (its start and end)
+  const nums = result.columns.filter((_, i) => (spec.kind === 'gantt' ? isDate(result, i) : isNum(result, i)))
   const set = (p: Partial<Spec>) => setSpec({ ...spec, ...p })
   const group = useId()
   const xName = ({ pie: 'Slices', funnel: 'Steps', treemap: 'Boxes', heatmap: 'Across', bubble: 'Across', waterfall: 'Steps', map: 'Places', pointmap: 'Names',
+    bump: 'Periods', ribbon: 'Columns', marimekko: 'Columns', waffle: 'Squares by', packed: 'Bubbles', gantt: 'Tasks',
     sunburst: 'Outer ring', sankey: 'From', chord: 'From', radar: 'Spokes', calendar: 'Dates' } as Partial<Record<Kind, string>>)[spec.kind]
   const one = spec.kind === 'kpi' || spec.kind === 'gauge' // the latest row's value
-  const splitName = ({ treemap: 'Group by', heatmap: 'Down', sunburst: 'Inner ring', sankey: 'To', chord: 'To' } as Partial<Record<Kind, string>>)[spec.kind] ?? 'Series by'
+  const splitName = ({ treemap: 'Group by', heatmap: 'Down', sunburst: 'Inner ring', sankey: 'To', chord: 'To', bump: 'Lines', ribbon: 'Ribbons', marimekko: 'Segments', packed: 'Colour by', gantt: 'Colour by' } as Partial<Record<Kind, string>>)[spec.kind] ?? 'Series by'
   const single = oneValue(spec.kind) || spec.split !== '' // one value column: slices, one value, or one series per split value
   return (
     <div className="builder">
@@ -382,8 +384,8 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
           {result.columns.map((c) => <option key={c} value={c}>{caption(result.display, c)}</option>)}
         </select>
       </Field>}
-      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : spec.kind === 'candlestick' ? 'Open, close, low, high' : spec.kind === 'pointmap' ? 'Longitude, latitude, size' : 'Values'}>
-        {nums.length === 0 && <span className="muted">no number columns</span>}
+      <Field label={single ? 'Value' : spec.kind === 'bubble' ? 'Up, then size' : spec.kind === 'bullet' ? 'Value, then target' : spec.kind === 'candlestick' ? 'Open, close, low, high' : spec.kind === 'pointmap' ? 'Longitude, latitude, size' : spec.kind === 'gantt' ? 'Start, then end' : 'Values'}>
+        {nums.length === 0 && <span className="muted">{spec.kind === 'gantt' ? 'no date columns' : 'no number columns'}</span>}
         {nums.map((c) => (
           <label key={c} className="pick">
             <input type={single ? 'radio' : 'checkbox'} name={group} checked={spec.ys.includes(c)}
