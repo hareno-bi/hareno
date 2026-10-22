@@ -182,6 +182,7 @@ dialog.share h3 { margin-top: 14px; }
 .drill button { font-size: 12px; padding: 2px 8px; }
 .drill button.link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .drill b { color: var(--text); }
+.drill button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pivot .m-cell .link { border: 0; background: none; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
 .pivot .m-cell .link:hover { color: var(--accent); }
 .pivot .m-row { position: static; }

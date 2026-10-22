@@ -97,6 +97,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const currentDates = useRef(dates)
   currentDates.current = dates
   const [drill, setDrill] = useState<Record<number, string[]>>({}) // by tile: the values clicked, top down; they narrow every tile
+  const [drilling, setDrilling] = useState<Record<number, boolean>>({}) // tiles in drill mode: a click drills instead of filtering
   const currentDrill = useRef(drill)
   currentDrill.current = drill
 
@@ -236,13 +237,15 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
                     <button className="link" onClick={() => go(i, [])}>All</button>
                     {down.map((v, k) => <span key={k}> › {k < down.length - 1 ? <button className="link" onClick={() => go(i, down.slice(0, k + 1))}>{v}</button> : <b>{v}</b>}</span>)}
                   </>}
-                  {drills && <span>{down.length > 0 && ' · '}Click a {caption(names, dr.levels[dr.at]).toLowerCase()} to see it by {caption(names, dr.levels[dr.at + 1]).toLowerCase()}.</span>}
+                  {drills && <button aria-pressed={!!drilling[i]} onClick={() => setDrilling({ ...drilling, [i]: !drilling[i] })}
+                    title="Drill mode: a click goes down a level instead of filtering">↓ Drill{drilling[i] ? ': on' : ''}</button>}
+                  {drills && drilling[i] && <span>Click a {caption(names, dr.levels[dr.at]).toLowerCase()} to see it by {caption(names, dr.levels[dr.at + 1]).toLowerCase()}.</span>}
                 </nav>
               )}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
                 : <TileOutput result={res as Result} spec={spec} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady}
-                    onPick={drills ? (_, v) => { if (v !== '(null)') go(i, [...down, v]) } : pick} />}
+                    onPick={drills && drilling[i] ? (_, v) => { if (v !== '(null)') go(i, [...down, v]) } : pick} />}
               {res?.columns && (
                 <p className="as-of muted">
                   <span>

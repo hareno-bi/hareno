@@ -78,7 +78,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 |---|---|---|---|
 | Launch | Filter bar and click-to-filter across tiles | A click on North filters the other tiles | Done |
 | Launch | Filters and selection kept through the 5-second refresh | A refresh does not reset filters | Done |
-| Launch | Drill-down in place (D4) | Clicking 2026 shows its quarters in the same chart; going back up restores the year view | Done: click to go down, "Up" and a path to go back; the drill narrows every tile on the dashboard (shown in the filter bar; a tile it cannot narrow says so); works embedded and in the CSV. A chart that drills uses clicks for drilling; at its lowest level a click filters as before |
+| Launch | Drill-down in place (D4) | Clicking 2026 shows its quarters in the same chart; going back up restores the year view | Done: a click filters, as in Power BI; the chart's "↓ Drill" button turns on drill mode, where a click goes down a level; "Up" and a path go back; the drill narrows every tile on the dashboard (shown in the filter bar; a tile it cannot narrow says so); works embedded and in the CSV. |
 | Launch | Date range filter | "Last 3 months" narrows every tile with a date | Done: last 7 or 30 days, 3 or 12 months, this or last year, or between two days; narrows every tile of a dataset with a date (`date:`), in its business time zone, before totals; SQL tiles say they are not filtered |
 | Later | Drill-through to another page, cross-highlighting, bookmarks, natural-language questions | | |
 
