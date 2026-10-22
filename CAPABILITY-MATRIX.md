@@ -54,7 +54,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 | | Capability | Test | Today |
 |---|---|---|---|
 | Launch | Grid canvas: place, resize and align tiles | A tile resized and moved stays so after publish | Tiles half or full width, moved up and down |
-| Launch | Pages, and scrolling dashboards for phones (D5) | A three-page dashboard publishes; filters carry across pages; at phone width each page is one scrolling column in reading order | One page; tiles stack on phones |
+| Launch | Pages, and scrolling dashboards for phones (D5) | A three-page dashboard publishes; filters carry across pages; at phone width each page is one scrolling column in reading order | Done: pages as tabs (up to 10), edited in the dashboard editor; only the page shown runs its queries; filters, the date range and drill-downs carry across pages; at phone width one full-width column in tile order. Embeds take `page=` |
 | Launch | Tiles from a dataset, and SQL tiles for trusted users | Both kinds on one dashboard | Done |
 | Launch | Draft, publish, unchanged published revisions, roll back to an earlier revision | Viewers see revision 3 while the author edits; rolling back to 2 works | Draft and publish done; rollback not yet |
 | Launch | Autosave and edit-conflict warning | Two editors: the second save is refused with a clear message, nothing is lost | Conflict check done; no autosave |

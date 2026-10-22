@@ -41,13 +41,13 @@ type Edit = TileDef & { key: number; result?: Result; error?: string; running?: 
 let keys = 0
 const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open })
 const saveable = (t: TileDef): TileDef => ({
-  title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide,
+  title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide, ...(t.page ? { page: t.page } : {}),
   ...(t.dataset ? { dataset: { dataset: t.dataset.dataset, dimensions: t.dataset.dimensions, measures: t.dataset.measures } } : {}),
   chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}), ...(t.chart.map ? { map: t.chart.map } : {}) },
   ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
 // same compares drafts whatever their key order (the database keeps its own)
-const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable), filters: d.filters ?? [] })
+const same = (d: Dash) => JSON.stringify({ title: d.title, tiles: d.tiles.map(saveable), filters: d.filters ?? [], pages: d.pages ?? [] })
 const json = { 'Content-Type': 'application/json' }
 
 export default function Editor({ reportId, style, vars, themeKey, fontsReady, onSignedOut }: {
@@ -63,6 +63,8 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
   const [title, setTitle] = useState('')
   const [filters, setFilters] = useState<string[]>([])
   const [tiles, setTiles] = useState<Edit[]>([])
+  const [pages, setPages] = useState<string[]>([]) // none: one page
+  const [at, setAt] = useState(0) // the page being edited
   const [version, setVersion] = useState(0)
   const [published, setPublished] = useState<number | null>(null)
   const [saved, setSaved] = useState('')
@@ -108,6 +110,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
       const d: Dash = body.draft
       setTitle(d.title)
       setFilters(d.filters ?? [])
+      setPages(d.pages ?? [])
       setTiles(d.tiles.map((t) => editing(t)))
       setConnection(body.connection)
       setVersion(body.version)
@@ -117,15 +120,19 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
     }, () => setError('Hareno is not reachable.'))
   }, [reportId, onSignedOut])
 
-  const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable), filters }
+  const draft: Dash = { title: title.trim(), tiles: tiles.map(saveable), filters, ...(pages.length ? { pages } : {}) }
   // filter bar candidates: the text columns of the tiles' results, and those already chosen
   const names: Labels = Object.assign({}, ...tiles.map((t) => t.result?.display))
   const columns = [...new Set([...filters, ...tiles.flatMap((t) => t.result?.columns.filter((_, i) => !isNum(t.result!, i)) ?? [])])]
   const dirty = same(draft) !== saved
+  const here = tiles.filter((t) => (t.page ?? 0) === at) // the tiles on the page being edited
 
   const update = (key: number, p: Partial<Edit>) => setTiles((ts) => ts.map((t) => (t.key === key ? { ...t, ...p } : t)))
+  // move swaps a tile with the next one on its page, earlier or later
   const move = (key: number, by: number) => setTiles((ts) => {
-    const i = ts.findIndex((t) => t.key === key), j = i + by
+    const i = ts.findIndex((t) => t.key === key)
+    let j = i + by
+    while (j >= 0 && j < ts.length && (ts[j].page ?? 0) !== (ts[i].page ?? 0)) j += by
     if (j < 0 || j >= ts.length) return ts
     const out = [...ts];
     [out[i], out[j]] = [out[j], out[i]]
@@ -244,7 +251,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
         </label>
         <button onClick={() => tiles.forEach(run)} disabled={!connection}>Run all</button>
         {sqlOk && <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= 24} onChange={(e) => {
-          const t = editing(examples[Number(e.target.value)])
+          const t = editing({ ...examples[Number(e.target.value)], page: at })
           setTiles((ts) => [...ts, t])
           run(t)
         }}>
@@ -264,24 +271,62 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
         ))}
       </fieldset>
       {error && <div className="card sql-error" role="alert">{error}</div>}
+      <PageEditor pages={pages} setPages={setPages} at={at} setAt={setAt} tiles={tiles} setTiles={setTiles} />
       <div className="grid dash-grid">
-        {tiles.map((t, i) => (
-          <TileEditor key={t.key} tile={t} first={i === 0} last={i === tiles.length - 1} single={tiles.length === 1}
+        {here.map((t, i) => (
+          <TileEditor key={t.key} tile={t} first={i === 0} last={i === here.length - 1} single={tiles.length === 1} pages={pages}
             update={(p) => update(t.key, p)} move={(by) => move(t.key, by)} run={(x) => run(x ?? t)} datasets={mine} sqlOk={sqlOk}
             remove={() => setTiles((ts) => ts.filter((x) => x.key !== t.key))} connection={connection} onSignedOut={onSignedOut}
             style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         ))}
         <div className="add-tile">
-          {mine.length > 0 && <button onClick={() => setTiles((ts) => [...ts, editing(datasetTile(mine[0]), true)])} disabled={tiles.length >= 24}>+ Tile from a dataset</button>}
-          {sqlOk && <button onClick={() => setTiles((ts) => [...ts, editing(newTile(), true)])} disabled={tiles.length >= 24}>+ SQL tile</button>}
+          {mine.length > 0 && <button onClick={() => setTiles((ts) => [...ts, editing({ ...datasetTile(mine[0]), page: at }, true)])} disabled={tiles.length >= 24}>+ Tile from a dataset</button>}
+          {sqlOk && <button onClick={() => setTiles((ts) => [...ts, editing({ ...newTile(), page: at }, true)])} disabled={tiles.length >= 24}>+ SQL tile</button>}
         </div>
       </div>
     </div>
   )
 }
 
-function TileEditor({ tile: t, first, last, single, update, move, run, remove, connection, datasets, sqlOk, onSignedOut, style, vars, themeKey, fontsReady }: {
-  tile: Edit; first: boolean; last: boolean; single: boolean
+// PageEditor shows the dashboard's pages as tabs: pick one to edit its tiles, rename it, add
+// pages, or remove an empty one. One page has no tabs.
+function PageEditor({ pages, setPages, at, setAt, tiles, setTiles }: {
+  pages: string[]; setPages: (p: string[]) => void; at: number; setAt: (n: number) => void
+  tiles: Edit[]; setTiles: (f: (ts: Edit[]) => Edit[]) => void
+}) {
+  const add = () => {
+    const next = pages.length ? [...pages] : ['Page 1']
+    let n = next.length + 1
+    while (next.includes(`Page ${n}`)) n++
+    setPages([...next, `Page ${n}`])
+    setAt(next.length)
+  }
+  // remove takes away the page shown, which has no tiles; the tiles after it move up a page
+  const remove = () => {
+    const next = pages.filter((_, k) => k !== at)
+    setTiles((ts) => ts.map((t) => ((t.page ?? 0) > at ? { ...t, page: t.page! - 1 } : t)))
+    setPages(next.length > 1 ? next : [])
+    setAt(Math.max(0, at - 1))
+  }
+  const empty = !tiles.some((t) => (t.page ?? 0) === at)
+  const taken = pages.some((p, k) => k !== at && p === pages[at])
+  if (!pages.length) return <div className="toolbar"><button onClick={add}>+ Add a page</button></div>
+  return (
+    <div className="toolbar page-edit">
+      <div role="tablist" aria-label="Pages" className="pages">
+        {pages.map((p, k) => <button key={k} role="tab" aria-selected={k === at} onClick={() => setAt(k)}>{p || 'Untitled'}</button>)}
+      </div>
+      <button onClick={add} disabled={pages.length >= 10}>+ Page</button>
+      <label>Page name <input value={pages[at]} maxLength={100} aria-invalid={!pages[at].trim() || taken}
+        onChange={(e) => setPages(pages.map((p, k) => (k === at ? e.target.value : p)))} /></label>
+      {(!pages[at].trim() || taken) && <span className="sql-error">Each page needs its own name.</span>}
+      <button onClick={remove} disabled={!empty} title={empty ? 'Remove this page' : 'Move or remove its tiles first'}>Remove page</button>
+    </div>
+  )
+}
+
+function TileEditor({ tile: t, first, last, single, pages, update, move, run, remove, connection, datasets, sqlOk, onSignedOut, style, vars, themeKey, fontsReady }: {
+  tile: Edit; first: boolean; last: boolean; single: boolean; pages: string[]
   update: (p: Partial<Edit>) => void; move: (by: number) => void; run: (t?: Edit) => void; remove: () => void
   connection: string; datasets: Dataset[]; sqlOk: boolean; onSignedOut: () => void
   style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
@@ -311,6 +356,9 @@ function TileEditor({ tile: t, first, last, single, update, move, run, remove, c
             <option value="half">Half width</option>
             <option value="wide">Full width</option>
           </select>
+          {pages.length > 0 && <select aria-label={`Page of ${name}`} title="Move to another page" value={t.page ?? 0} onChange={(e) => update({ page: Number(e.target.value) })}>
+            {pages.map((p, k) => <option key={k} value={k}>{p}</option>)}
+          </select>}
           <button onClick={() => move(-1)} disabled={first} aria-label={`Move ${name} earlier`} title="Move earlier">↑</button>
           <button onClick={() => move(1)} disabled={last} aria-label={`Move ${name} later`} title="Move later">↓</button>
           <button onClick={remove} disabled={single} aria-label={`Remove ${name}`} title="Remove tile">×</button>

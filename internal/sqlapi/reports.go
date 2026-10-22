@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,6 +45,9 @@ type Draft struct {
 	Title   string   `json:"title"`
 	Tiles   []Tile   `json:"tiles"`
 	Filters []string `json:"filters,omitempty"` // columns the filter bar offers (filters.go)
+	// Pages are the dashboard's page names, in order (D5); none is one page. Tiles stay one list,
+	// each naming its page, so tile numbers (CSV links, drill-downs) do not depend on pages.
+	Pages []string `json:"pages,omitempty"`
 }
 
 // Tile is one query on a dashboard and how it is shown.
@@ -53,12 +57,16 @@ type Tile struct {
 	Chart  json.RawMessage `json:"chart"`            // the editor's chart settings, kept as given
 	Show   string          `json:"show"`             // "chart", "table" or "matrix"
 	Wide   bool            `json:"wide"`             // the dashboard's full width, or half
+	Page   int             `json:"page,omitempty"`   // which of the pages it is on, from 0
 	Matrix *Matrix         `json:"matrix,omitempty"` // with show "matrix" only (matrix.go)
 	// Dataset, instead of SQL, builds the tile from a governed dataset (datasets.go).
 	Dataset *DatasetQuery `json:"dataset,omitempty"`
 }
 
-const maxTiles = 24
+const (
+	maxTiles = 24
+	maxPages = 10
+)
 
 func (d Draft) valid() bool {
 	if d.Title == "" || len(d.Title) > 200 || len(d.Tiles) == 0 || len(d.Tiles) > maxTiles || len(d.Filters) > maxFilters {
@@ -69,8 +77,16 @@ func (d Draft) valid() bool {
 			return false
 		}
 	}
+	if len(d.Pages) == 1 || len(d.Pages) > maxPages {
+		return false
+	}
+	for i, p := range d.Pages {
+		if strings.TrimSpace(p) == "" || len(p) > 100 || slices.Contains(d.Pages[:i], p) {
+			return false
+		}
+	}
 	for _, t := range d.Tiles {
-		if (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
+		if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
 			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") ||
 			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid(t.Dataset != nil)) {
 			return false
@@ -449,6 +465,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		Filters Filters          `json:"filters"`
 		Dates   *Dates           `json:"dates"`
 		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
+		Page    int              `json:"page"`  // the page shown: only its tiles run
 	}
 	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
 		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
@@ -504,7 +521,10 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	datable := false
 	for i, t := range body.Tiles {
 		if t.Dataset != nil && h.Datasets != nil && h.Datasets.ByName[t.Dataset.Dataset] != nil && h.Datasets.ByName[t.Dataset.Dataset].Date != "" {
-			datable = true
+			datable = true // on any page: the date range is the dashboard's
+		}
+		if t.Page != req.Page {
+			continue
 		}
 		base, _, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, nil)
 		if err == nil {
@@ -541,8 +561,14 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 			cols = append(cols, c)
 		}
 	}
-	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates, "drill", req.Drill)
-	reply(w, map[string]any{"tiles": tiles, "data": data, "options": options(cols, all), "dates": datable})
+	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates, "drill", req.Drill, "page", req.Page)
+	shown := make([]*tileResult, len(tiles)) // null for the other pages' tiles
+	for i := range tiles {
+		if body.Tiles[i].Page == req.Page {
+			shown[i] = &tiles[i]
+		}
+	}
+	reply(w, map[string]any{"tiles": shown, "data": data, "options": options(cols, all), "dates": datable})
 }
 
 // scope is the row scope the report runs under for the user, and whose it is: their own, or for

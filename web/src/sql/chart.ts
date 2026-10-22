@@ -636,7 +636,7 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
 
 // A dashboard (a saved report): tiles, each a query and how it is shown, half or full width.
 export type Show = 'chart' | 'table' | 'matrix'
-export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean; matrix?: MatrixSpec; dataset?: Pick }
+export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean; page?: number; matrix?: MatrixSpec; dataset?: Pick } // page: from 0
 
 // A dataset tile's picks: the dataset, the fields to group by and the measures (server: datasets.go).
 // Saved instead of SQL; the server writes the query each time the tile runs.
@@ -667,5 +667,6 @@ export function fitMatrix(m: MatrixSpec | undefined, r: Result, measures?: strin
     values: values.length || !num ? values : [{ column: num, agg: measures ? '' : 'sum' }],
   }
 }
-export type Dash = { title: string; tiles: TileDef[]; filters?: string[] } // filters: the columns the filter bar offers
+// filters: the columns the filter bar offers; pages: the page names, in order (none: one page)
+export type Dash = { title: string; tiles: TileDef[]; filters?: string[]; pages?: string[] }
 export const blank: Spec = { kind: 'bar', x: '', ys: [], split: '' }
