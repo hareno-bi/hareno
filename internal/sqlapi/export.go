@@ -33,8 +33,8 @@ import (
 //     even where the report was shared showing the sharer's data: that is for viewing only.
 //   - Rows stream to the file as they arrive, up to the connection's ExportRows.
 //   - ?filters={"<column>": ["<value>", ...]} narrows it as the dashboard does (filters.go); the
-//     dashboard passes only the filters that apply to the tile. ?dates= and ?drill=["2026", ...]
-//     narrow it as the dashboard's date range (dates.go) and the tile's drill-down (drill.go) do.
+//     dashboard passes only the filters that apply to the tile. ?dates= and ?drill={"<tile>": ["2026", ...]}
+//     narrow it as the dashboard's date range (dates.go) and drill-downs (drill.go) do.
 func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 	bearer, sub, ok := h.caller(w, r)
 	if !ok {
@@ -107,13 +107,13 @@ func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, `dates: expected {"last": ...} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}`)
 		return
 	}
-	var drill []string
-	if d := r.URL.Query().Get("drill"); d != "" && (json.Unmarshal([]byte(d), &drill) != nil || !validDrill(map[int][]string{n: drill})) {
-		fail(w, http.StatusBadRequest, `drill: expected ["<value>", ...]`)
+	var drill map[int][]string
+	if d := r.URL.Query().Get("drill"); d != "" && (json.Unmarshal([]byte(d), &drill) != nil || !validDrill(drill)) {
+		fail(w, http.StatusBadRequest, `drill: expected {"<tile>": ["<value>", ...]}`)
 		return
 	}
 	// a matrix tile downloads the rows it totals
-	t, _, err := h.drilled(body.Tiles[n], drill)
+	t, _, _, err := h.drilled(body.Tiles, n, drill)
 	var sql string
 	var args []any
 	if err == nil {
