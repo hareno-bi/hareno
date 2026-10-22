@@ -65,7 +65,7 @@ type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolea
 // Drill: a tile drilling down a hierarchy (server: drill.go): its own level and those below, and
 // how far down it is (levels[at] is shown)
 type Drill = { levels: string[]; at: number }
-type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
+type Run = { tiles: (TileRun | null)[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
 export type Filters = Record<string, string>
 // A date range: a span counted back from today, or from one day to another, both included. It
@@ -78,10 +78,10 @@ const time = (s: string) => new Date(s).toLocaleTimeString()
 const when = (s: string) => (isNaN(Date.parse(s)) ? s : new Date(s).toLocaleString())
 
 // embedded: shown in another site's frame (Embed): no editing or sharing, the title only if asked;
-// filters: the filters it starts with
-export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut, embedded, title = true, filters: initial = {}, dates: initialDates = null }: {
+// filters, dates, page: what it starts with (page from 0)
+export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut, embedded, title = true, filters: initial = {}, dates: initialDates = null, page: initialPage = 0 }: {
   id: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
-  embedded?: boolean; title?: boolean; filters?: Filters; dates?: Dates | null
+  embedded?: boolean; title?: boolean; filters?: Filters; dates?: Dates | null; page?: number
 }) {
   const [report, setReport] = useState<{ published?: Published; canEdit: boolean; canExport: boolean } | null>(null)
   const [run, setRun] = useState<Run | null>(null)
@@ -100,6 +100,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const [drilling, setDrilling] = useState<Record<number, boolean>>({}) // tiles in drill mode: a click drills instead of filtering
   const currentDrill = useRef(drill)
   currentDrill.current = drill
+  const [page, setPage] = useState(initialPage) // the page shown; filters, dates and drills carry across pages
+  const currentPage = useRef(page)
+  currentPage.current = page
 
   // refresh asks for every tile; the server answers from its cache unless the data has changed.
   const refresh = async () => {
@@ -108,10 +111,10 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       return
     }
     busy.current = true
-    const sent = current.current, sentDates = currentDates.current, sentDrill = currentDrill.current
+    const sent = current.current, sentDates = currentDates.current, sentDrill = currentDrill.current, sentPage = currentPage.current
     try {
       const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill }) })
+      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill, page: sentPage }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -123,7 +126,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       setFailed('Hareno is not reachable.')
     } finally {
       busy.current = false
-      if (again.current || sent !== current.current || sentDates !== currentDates.current || sentDrill !== currentDrill.current) {
+      if (again.current || sent !== current.current || sentDates !== currentDates.current || sentDrill !== currentDrill.current || sentPage !== currentPage.current) {
         again.current = false
         refresh()
       }
@@ -140,6 +143,11 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const range = (d: Dates | null) => {
     currentDates.current = d
     setDates(d)
+    refresh()
+  }
+  const turn = (n: number) => {
+    currentPage.current = n
+    setPage(n)
     refresh()
   }
   // go shows tile i drilled down through values (none: its own level)
@@ -161,6 +169,10 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       const body = await r.json()
       if (!r.ok) return setError(body.error)
       setReport(body)
+      if (body.published && currentPage.current >= Math.max(body.published.body.pages?.length ?? 0, 1)) { // e.g. an embed's page=9 of 3
+        currentPage.current = 0
+        setPage(0)
+      }
       if (body.published) refresh()
     }, () => setError('Hareno is not reachable.'))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per report
@@ -181,7 +193,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   }, [live, id])
 
   const pub = report?.published
-  const names: Labels = Object.assign({}, ...(run?.tiles ?? []).map((t) => t.display)) // dataset columns' labels
+  // dataset columns' labels, kept from every page seen: a filter set on one page keeps its label on the next
+  const seen = useRef<Labels>({})
+  const names: Labels = Object.assign(seen.current, ...(run?.tiles ?? []).map((t) => t?.display))
   if (error) return <div className="card sql-error" role="alert">{error}</div>
   if (!report) return <div className="state loading">Loading…</div>
   if (!pub) return <p className="note">This dashboard has not been published yet. {report.canEdit && <a href={`#/sql/${id}`}>Open the draft</a>}</p>
@@ -208,8 +222,14 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
         options={run?.options ?? {}} offered={pub.body.filters ?? []} names={names} set={filter}
         dates={run?.dates ? dates : undefined} setDates={range}
         drills={Object.entries(drill).map(([j, path]) => ({ tile: pub.body.tiles[+j].title || `Tile ${+j + 1}`, path, clear: () => go(+j, []) }))} />
+      {(pub.body.pages?.length ?? 0) > 1 && (
+        <div role="tablist" aria-label="Pages" className="pages">
+          {pub.body.pages!.map((p, k) => <button key={k} role="tab" aria-selected={k === page} onClick={() => turn(k)}>{p}</button>)}
+        </div>
+      )}
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
+          if ((t.page ?? 0) !== page) return null
           const res = run?.tiles[i]
           const name = t.title || `Tile ${i + 1}`
           const not = res?.columns ? Object.keys(filters).filter((c) => !res.filtered?.includes(c)) : []
