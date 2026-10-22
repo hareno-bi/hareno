@@ -108,6 +108,22 @@ func (ds *Datasets) compile(ctx context.Context, connection string, conn Connect
 	return c, nil
 }
 
+// filterable are the columns a dataset tile's filters may narrow: its own text columns and, as
+// in Power BI, every other text dimension of its dataset, shown in the tile or not. A filter on
+// region narrows revenue by category to that region's revenue. A dimension's type is known by
+// compiling a query of it alone (kept, as every compiled query is).
+func (ds *Datasets) filterable(ctx context.Context, connection string, conn Connection, name string, text []string, f Filters) []string {
+	out := slices.Clone(text)
+	for c := range f {
+		if _, ok := ds.ByName[name].Dimensions[c]; ok && !slices.Contains(out, c) {
+			if probe, err := ds.compile(ctx, connection, conn, name, model.Query{Dimensions: []string{c}}); err == nil && slices.Contains(probe.text, c) {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
 // where is the filters on columns as Malloy conditions, applied before the measures are computed.
 func where(f Filters, columns []string) []string {
 	var out []string
@@ -141,7 +157,7 @@ func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection
 	if err != nil {
 		return "", nil, false, err
 	}
-	on := f.on(base.text)
+	on := f.on(ds.filterable(ctx, connection, conn, q.Dataset, base.text, f))
 	conds := append(slices.Clone(q.Where), where(f, on)...)
 	d := ds.ByName[q.Dataset]
 	dated := dates != nil && d.Date != ""
