@@ -448,7 +448,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Filters Filters          `json:"filters"`
 		Dates   *Dates           `json:"dates"`
-		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down (drill.go)
+		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
 	}
 	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
 		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
@@ -516,12 +516,13 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 			var args []any
 			var filtered []string
 			var dated bool
-			if t, drill, err = h.drilled(t, req.Drill[i]); err == nil {
+			var by []int
+			if t, drill, by, err = h.drilled(body.Tiles, i, req.Drill); err == nil {
 				sql, args, filtered, dated, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, req.Dates, t.Matrix)
 			}
 			if err == nil {
 				tiles[i] = get(sql, args...)
-				tiles[i].Filtered, tiles[i].Dated, tiles[i].Drill = filtered, dated, drill
+				tiles[i].Filtered, tiles[i].Dated, tiles[i].Drill, tiles[i].DrilledBy = filtered, dated, drill, by
 			}
 		} else if err == nil {
 			tiles[i] = all[i]

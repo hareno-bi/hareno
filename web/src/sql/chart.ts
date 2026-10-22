@@ -621,8 +621,10 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       const raw = cats.map((c) => series.get(n)!.get(c) ?? (stack ? 0 : null)) // a stack counts a missing value as 0, or its layers break
       const data = pct ? raw.map((v, j) => (v === null || !totals[j] ? null : v / totals[j])) : raw
       const tooltip = pct ? { valueFormatter: (v: number) => (typeof v === 'number' ? fmtPct(v) : v) } : fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
-      if (k === 'line' || (combo && i > 0)) return { ...line(i), areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
-      if (lines) return { ...line(i), areaStyle: stack ? { opacity: 0.85 } : line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true, stack }
+      // one point makes no line: show it as a dot, whatever the style
+      const dot = cats.length === 1 ? { symbol: 'circle', symbolSize: 8, showSymbol: true } : {}
+      if (k === 'line' || (combo && i > 0)) return { ...line(i), ...dot, areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
+      if (lines) return { ...line(i), ...dot, areaStyle: stack ? { opacity: 0.85 } : line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true, stack }
       return {
         ...bar(i), name: n, data, tooltip, stack,
         itemStyle: { ...bar(i).itemStyle, borderRadius: stack && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },

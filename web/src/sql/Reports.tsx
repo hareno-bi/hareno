@@ -61,7 +61,7 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
 
 type Published = { revision: number; publishedAt: string; body: Dash }
 // One tile's result: rows (perhaps the last good ones, marked stale) or only an error.
-type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[]; dated?: boolean; drill?: Drill }
+type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[]; dated?: boolean; drill?: Drill; drilledBy?: number[] }
 // Drill: a tile drilling down a hierarchy (server: drill.go): its own level and those below, and
 // how far down it is (levels[at] is shown)
 type Drill = { levels: string[]; at: number }
@@ -96,7 +96,8 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const [dates, setDates] = useState<Dates | null>(initialDates)
   const currentDates = useRef(dates)
   currentDates.current = dates
-  const [drill, setDrill] = useState<Record<number, string[]>>({}) // by tile: the values clicked, top down
+  const [drill, setDrill] = useState<Record<number, string[]>>({}) // by tile: the values clicked, top down; they narrow every tile
+  const [drilling, setDrilling] = useState<Record<number, boolean>>({}) // tiles in drill mode: a click drills instead of filtering
   const currentDrill = useRef(drill)
   currentDrill.current = drill
 
@@ -205,7 +206,8 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       </p>
       <FilterBar columns={[...new Set([...(pub.body.filters ?? []), ...Object.keys(filters)])]} filters={filters}
         options={run?.options ?? {}} offered={pub.body.filters ?? []} names={names} set={filter}
-        dates={run?.dates ? dates : undefined} setDates={range} />
+        dates={run?.dates ? dates : undefined} setDates={range}
+        drills={Object.entries(drill).map(([j, path]) => ({ tile: pub.body.tiles[+j].title || `Tile ${+j + 1}`, path, clear: () => go(+j, []) }))} />
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
           const res = run?.tiles[i]
@@ -215,7 +217,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
           const mine = Object.fromEntries((res?.filtered ?? []).map((c) => [c, [filters[c]]]))
           const down = drill[i] ?? [], dr = res?.drill
           const q = new URLSearchParams({ ...(res?.filtered?.length ? { filters: JSON.stringify(mine) } : {}), ...(dates && res?.dated ? { dates: JSON.stringify(dates) } : {}),
-            ...(down.length ? { drill: JSON.stringify(down) } : {}) }).toString()
+            ...(Object.keys(drill).length ? { drill: JSON.stringify(drill) } : {}) }).toString()
+          // drills in other tiles that do not narrow this one (its data lacks their levels, or it is a SQL tile)
+          const undrilled = res?.columns ? Object.keys(drill).map(Number).filter((j) => j !== i && !res.drilledBy?.includes(j)) : []
           // drilled, the chart shows the level below in place of the tile's own
           const spec = dr && t.chart ? { ...t.chart, x: t.chart.x === dr.levels[0] ? dr.levels[dr.at] : t.chart.x, split: t.chart.split === dr.levels[0] ? dr.levels[dr.at] : t.chart.split } : t.chart
           const drills = !!dr && dr.at < dr.levels.length - 1 && t.show === 'chart' && !!spec && picks(spec.kind) && spec.x === dr.levels[dr.at]
@@ -225,6 +229,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
               {t.title && <header><h3>{t.title}</h3></header>}
               {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.map((c) => caption(names, c)).join(', ')}: this tile has no such column.</p>}
               {undated && <p className="unfiltered muted">Not filtered by date: {t.dataset ? 'its dataset has no date set' : 'a SQL tile has no date set'}.</p>}
+              {undrilled.length > 0 && <p className="unfiltered muted">Not narrowed by the drill-down in {undrilled.map((j) => `“${pub.body.tiles[j].title || `Tile ${j + 1}`}”`).join(', ')}: {t.dataset ? 'its data has no such level' : 'a SQL tile cannot be'}.</p>}
               {(down.length > 0 || drills) && (
                 <nav className="drill muted" aria-label="Drill-down">
                   {down.length > 0 && <>
@@ -232,13 +237,15 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
                     <button className="link" onClick={() => go(i, [])}>All</button>
                     {down.map((v, k) => <span key={k}> › {k < down.length - 1 ? <button className="link" onClick={() => go(i, down.slice(0, k + 1))}>{v}</button> : <b>{v}</b>}</span>)}
                   </>}
-                  {drills && <span>{down.length > 0 && ' · '}Click a {caption(names, dr.levels[dr.at]).toLowerCase()} to see it by {caption(names, dr.levels[dr.at + 1]).toLowerCase()}.</span>}
+                  {drills && <button aria-pressed={!!drilling[i]} onClick={() => setDrilling({ ...drilling, [i]: !drilling[i] })}
+                    title="Drill mode: a click goes down a level instead of filtering">↓ Drill{drilling[i] ? ': on' : ''}</button>}
+                  {drills && drilling[i] && <span>Click a {caption(names, dr.levels[dr.at]).toLowerCase()} to see it by {caption(names, dr.levels[dr.at + 1]).toLowerCase()}.</span>}
                 </nav>
               )}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
                 : <TileOutput result={res as Result} spec={spec} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady}
-                    onPick={drills ? (_, v) => { if (v !== '(null)') go(i, [...down, v]) } : pick} />}
+                    onPick={drills && drilling[i] ? (_, v) => { if (v !== '(null)') go(i, [...down, v]) } : pick} />}
               {res?.columns && (
                 <p className="as-of muted">
                   <span>
@@ -263,11 +270,13 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
 // FilterBar shows a choice per filter column: the bar's own, and any added by clicking a chart
 // (those can be removed). Choices are the values in the viewer's own results.
 // dates is the date range, or undefined when no tile has a date a range would narrow.
-function FilterBar({ columns, filters, options, offered, names, set, dates, setDates }: {
+// drills are the drill-downs in charts, which narrow every tile.
+function FilterBar({ columns, filters, options, offered, names, set, dates, setDates, drills }: {
   columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]; names: Labels
   set: (column: string, value: string | null) => void; dates?: Dates | null; setDates: (d: Dates | null) => void
+  drills: { tile: string; path: string[]; clear: () => void }[]
 }) {
-  if (!columns.length && dates === undefined) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
+  if (!columns.length && dates === undefined && !drills.length) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
   return (
     <div className="toolbar filter-bar" role="group" aria-label="Filters">
       {dates !== undefined && <DateRange dates={dates} set={setDates} />}
@@ -282,7 +291,13 @@ function FilterBar({ columns, filters, options, offered, names, set, dates, setD
           {!offered.includes(c) && <button onClick={() => set(c, null)} aria-label={`Remove the ${caption(names, c)} filter`} title="Remove filter">×</button>}
         </span>
       ))}
-      {Object.keys(filters).length > 0 && <button onClick={() => Object.keys(filters).forEach((c) => set(c, null))}>Clear filters</button>}
+      {drills.map((d) => (
+        <span key={d.tile} className="filter on" title={`Drilled down in “${d.tile}”: narrows every tile`}>
+          {d.path.join(' › ')}
+          <button onClick={d.clear} aria-label={`Leave the drill-down in ${d.tile}`} title="Leave the drill-down">×</button>
+        </span>
+      ))}
+      {Object.keys(filters).length + drills.length > 0 && <button onClick={() => { Object.keys(filters).forEach((c) => set(c, null)); drills.forEach((d) => d.clear()) }}>Clear filters</button>}
       <span className="muted">Tip: click a bar, slice or matrix row to filter by it.</span>
     </div>
   )

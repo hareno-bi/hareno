@@ -63,6 +63,8 @@ type tileResult struct {
 	Dated bool `json:"dated,omitempty"`
 	// Drill is where a tile that drills down is in its hierarchy (drill.go).
 	Drill *Drill `json:"drill,omitempty"`
+	// DrilledBy are the other tiles whose drill-down narrows this tile (drill.go).
+	DrilledBy []int `json:"drilledBy,omitempty"`
 	// Display is how a dataset tile's columns are shown (datasets.go).
 	Display map[string]model.Display `json:"display,omitempty"`
 }
