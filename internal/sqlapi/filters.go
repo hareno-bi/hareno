@@ -17,7 +17,9 @@ import (
 //	SELECT * FROM (<tile SQL>) AS hareno_tile WHERE "region"::text = ANY($1) AND ...
 //
 // so it narrows the tile's own result and never widens it: the database's row policy still
-// applies inside. A tile without the column is left as it is, and says so. A report's draft
+// applies inside. A dataset tile is narrowed instead inside its query, by its own text columns and
+// by every other text dimension of its dataset (datasets.go: filterable). A tile without the
+// column is left as it is, and says so. A report's draft
 // lists the columns its filter bar offers; clicking a chart adds a filter on its X column.
 //
 // ponytail: values compare as the column's text, so a number or time matches only as PostgreSQL
