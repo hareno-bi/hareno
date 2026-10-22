@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -445,11 +446,12 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	var req struct {
-		Filters Filters `json:"filters"`
-		Dates   *Dates  `json:"dates"`
+		Filters Filters          `json:"filters"`
+		Dates   *Dates           `json:"dates"`
+		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down (drill.go)
 	}
-	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() {
-		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}}`)
+	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
+		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
 		return
 	}
 	if rep.Published == nil {
@@ -508,15 +510,18 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			all[i] = get(base)
 		}
+		var drill *Drill
 		if err == nil && all[i].response != nil {
 			var sql string
 			var args []any
 			var filtered []string
 			var dated bool
-			sql, args, filtered, dated, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, req.Dates, t.Matrix)
+			if t, drill, err = h.drilled(t, req.Drill[i]); err == nil {
+				sql, args, filtered, dated, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, req.Dates, t.Matrix)
+			}
 			if err == nil {
 				tiles[i] = get(sql, args...)
-				tiles[i].Filtered, tiles[i].Dated = filtered, dated
+				tiles[i].Filtered, tiles[i].Dated, tiles[i].Drill = filtered, dated, drill
 			}
 		} else if err == nil {
 			tiles[i] = all[i]
@@ -525,6 +530,9 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 			tiles[i] = tileResult{Error: err.Error()}
 		}
 		tiles[i].Display = h.display(t.Dataset)
+		if drill != nil {
+			maps.Copy(tiles[i].Display, shown(h.Datasets.ByName[t.Dataset.Dataset], drill.Levels))
+		}
 	}
 	cols := slices.Clone(body.Filters)
 	for c := range req.Filters {
@@ -532,7 +540,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 			cols = append(cols, c)
 		}
 	}
-	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates)
+	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates, "drill", req.Drill)
 	reply(w, map[string]any{"tiles": tiles, "data": data, "options": options(cols, all), "dates": datable})
 }
 
