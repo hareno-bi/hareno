@@ -10,6 +10,9 @@ import Table from './Table'
 // TileOutput shows one tile's result as its chart, table or matrix. onPick gets the X column and
 // the value of a clicked bar, point or slice (not on scatter charts, whose X is a number), or a
 // clicked matrix row or column value.
+// picks: charts whose X values can be clicked (to filter by them, or drill into them)
+export const picks = (k: Spec['kind']) => !['scatter', 'bubble', 'beeswarm', 'gauge', 'histogram', 'waterfall', 'calendar', 'sankey', 'chord', 'sunburst', 'radar'].includes(k)
+
 export default function TileOutput({ result, spec, show, matrix, label, style, vars, themeKey, fontsReady, onPick }: {
   result: Result; spec: Spec | null; show: Show; matrix?: MatrixSpec; label: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
   onPick?: (column: string, value: string) => void
@@ -26,7 +29,7 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
   if (show === 'chart' && maps(s.kind) && !mapReady) return <div className="state loading">Loading the map…</div>
   if (!option) return <div className="state">Pick a column for X and at least one numeric column for Y.</div>
   return fontsReady ? <Chart theme={themeKey} chart={style.chart} tokens={vars} option={option} label={`${kinds[s.kind]} chart: ${label}`}
-    onPick={onPick && !['scatter', 'bubble', 'beeswarm', 'gauge', 'histogram', 'waterfall', 'calendar', 'sankey', 'chord', 'sunburst', 'radar'].includes(s.kind) ? (v) => onPick(s.x, v) : undefined} /> : null
+    onPick={onPick && picks(s.kind) ? (v) => onPick(s.x, v) : undefined} /> : null
 }
 
 // Kpi shows one value large: the latest row's, with its change from the row before (a percent

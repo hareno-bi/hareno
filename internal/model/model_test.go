@@ -105,11 +105,35 @@ measures:
 		{"  m: {sum: amt}\n", "  m: {sum: amt}\ndisplay:\n  m: {format: euros}\n", "display m: format must be"},
 		{"root: a", "root: a\ndate: nope", "date nope: must be a dimension"},
 		{"  d: bj.col\n", "  d: bj.col\n  dm: bj.col.month\ndate: dm\n", "date dm: must be a dimension"},
+		{"  d: bj.col\n", "  d: bj.col\nhierarchies:\n  h: [d]\n", "hierarchy h: needs two levels"},
+		{"  d: bj.col\n", "  d: bj.col\nhierarchies:\n  h: [d, x]\n", "hierarchy h: x is not a dimension"},
+		{"  d: bj.col\n", "  d: bj.col\n  dh: bj.at.hour\nhierarchies:\n  h: [dh, d]\n", "dh cannot be drilled into"},
 	} {
 		doc := strings.Replace(base, tc.from, tc.to, 1)
 		_, err := Parse([]byte(doc))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q -> %q: got %v, want an error containing %q", tc.from, tc.to, err, tc.want)
+		}
+	}
+}
+
+// TestIs: a clicked value as a condition: a period as the days it spans, text as itself.
+func TestIs(t *testing.T) {
+	d := load(t, "sales.yaml")
+	for _, tc := range []struct{ dim, value, want string }{
+		{"order_year", "2026", "ordered_at >= @2026-01-01 and ordered_at < @2027-01-01"},
+		{"order_quarter", "2026-Q4", "ordered_at >= @2026-10-01 and ordered_at < @2027-01-01"},
+		{"order_month", "2026-02", "ordered_at >= @2026-02-01 and ordered_at < @2026-03-01"},
+		{"order_day", "2026-02-28", "ordered_at >= @2026-02-28 and ordered_at < @2026-03-01"},
+		{"category", "Toys 'n' games", `category = 'Toys \'n\' games'`},
+	} {
+		if got, err := d.Is(tc.dim, tc.value); got != tc.want || err != nil {
+			t.Errorf("%s %s: %q %v, want %q", tc.dim, tc.value, got, err, tc.want)
+		}
+	}
+	for _, bad := range [][2]string{{"order_year", "2026' or true"}, {"order_quarter", "2026-Q5"}, {"order_quarter", "2026-Q1x"}, {"order_month", "2026-13"}, {"nope", "x"}} {
+		if got, err := d.Is(bad[0], bad[1]); err == nil {
+			t.Errorf("%s %q: %q", bad[0], bad[1], got)
 		}
 	}
 }

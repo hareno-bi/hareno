@@ -44,7 +44,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 | Launch | Safety: a measure that would double count is refused, not computed | Shipping by product category is refused (Q04) | Done |
 | Launch | Time: business time zone; fiscal periods from the mart's date table (Appendix B) | Q12 and Q13 through the dataset | Time zone done; date table not yet joined |
 | Launch | Calculated fields: simple expressions on a row (e.g. `quantity * price`), with a defined small language | Each function in the language has a worked example that passes | Only in the dataset file |
-| Launch | Hierarchies for drill-down (D4) | Year → quarter → month drills with correct totals at each level | Not started |
+| Launch | Hierarchies for drill-down (D4) | Year → quarter → month drills with correct totals at each level | Done: `hierarchies:` in a dataset file; each level is queried again, so totals are right for ratios too |
 | Launch | Period comparisons: previous period, running total | Q14 through the dataset | Not started |
 | Launch | Dataset revisions: a change shows which dashboards it affects before it is saved | Renaming or removing a measure lists the tiles that use it | Not started |
 | Later | Many-to-many relationships, several fact tables in one dataset, rank and moving averages, what-if parameters | | |
@@ -78,7 +78,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 |---|---|---|---|
 | Launch | Filter bar and click-to-filter across tiles | A click on North filters the other tiles | Done |
 | Launch | Filters and selection kept through the 5-second refresh | A refresh does not reset filters | Done |
-| Launch | Drill-down in place (D4) | Clicking 2026 shows its quarters in the same chart; going back up restores the year view | Not started |
+| Launch | Drill-down in place (D4) | Clicking 2026 shows its quarters in the same chart; going back up restores the year view | Done: click to go down, "Up" and a path to go back; works embedded and in the CSV. A chart that drills uses clicks for drilling; at its lowest level a click filters as before |
 | Launch | Date range filter | "Last 3 months" narrows every tile with a date | Done: last 7 or 30 days, 3 or 12 months, this or last year, or between two days; narrows every tile of a dataset with a date (`date:`), in its business time zone, before totals; SQL tiles say they are not filtered |
 | Later | Drill-through to another page, cross-highlighting, bookmarks, natural-language questions | | |
 

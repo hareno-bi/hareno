@@ -34,13 +34,19 @@ joins:
 dimensions:
   order_id: order_id
   ordered_at: ordered_at
-  order_day: ordered_at.day
+  order_year: ordered_at.year
+  order_quarter: ordered_at.quarter
   order_month: ordered_at.month
+  order_day: ordered_at.day
   region_name: customer.region.region_name
   customer_name: customer.customer_name
   segment: customer.segment
   category: line.product.category
   product_name: line.product.product_name
+# Drill paths: a chart by year drills into quarters, then months, then days.
+hierarchies:
+  calendar: [order_year, order_quarter, order_month, order_day]
+  products: [category, product_name]
 measures:
   order_count: {count: "*"}
   line_count: {count: line}
@@ -57,8 +63,10 @@ measures:
 display:
   order_id: {label: Order}
   ordered_at: {label: Ordered at}
-  order_day: {label: Day}
+  order_year: {label: Year}
+  order_quarter: {label: Quarter}
   order_month: {label: Month}
+  order_day: {label: Day}
   region_name: {label: Region}
   customer_name: {label: Customer}
   category: {label: Category}

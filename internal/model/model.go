@@ -34,6 +34,9 @@ type Dataset struct {
 	// Date is the dimension a dashboard's date range narrows (a time or date, read in TimeZone);
 	// optional: without it, date ranges leave the dataset's tiles as they are.
 	Date string `yaml:"date"`
+	// Hierarchies are drill paths, by name: dimensions from the top level down, e.g. year,
+	// quarter, month. Each level above the last is text or a period (year, quarter, month, week, day).
+	Hierarchies map[string][]string `yaml:"hierarchies"`
 
 	joins map[string]Join
 	loc   *time.Location
@@ -181,6 +184,19 @@ func (d *Dataset) validate() error {
 			bad("date %s: must be a dimension holding a time or date, not a month or other period", d.Date)
 		}
 	}
+	for name, levels := range d.Hierarchies {
+		if len(levels) < 2 {
+			bad("hierarchy %s: needs two levels or more", name)
+		}
+		for i, l := range levels {
+			path, ok := d.Dimensions[l]
+			if !ok || slices.Contains(levels[:i], l) {
+				bad("hierarchy %s: %s is not a dimension, or is there twice", name, l)
+			} else if frame := path[strings.LastIndex(path, ".")+1:]; i < len(levels)-1 && timeframes[frame] && periods[frame] == nil {
+				bad("hierarchy %s: %s cannot be drilled into (only years, quarters, months, weeks and days)", name, l)
+			}
+		}
+	}
 	for name, s := range d.Display {
 		_, dim := d.Dimensions[name]
 		if _, ok := d.Measures[name]; !ok && !dim {
@@ -285,10 +301,61 @@ var timeframes = map[string]bool{"year": true, "quarter": true, "month": true, "
 
 // Between is the Malloy condition keeping the dataset's date from the day from up to, not
 // including, the day to, both read in the business time zone.
-func (d *Dataset) Between(from, to time.Time) string {
+func (d *Dataset) Between(from, to time.Time) string { return between(d.Date, from, to) }
+
+func between(field string, from, to time.Time) string {
 	day := func(t time.Time) string { return "@" + t.Format(time.DateOnly) }
-	return fmt.Sprintf("%s >= %s and %s < %s", d.Date, day(from), d.Date, day(to))
+	return fmt.Sprintf("%s >= %s and %s < %s", field, day(from), field, day(to))
 }
+
+// periods read a period's label as a query shows it (2026, 2026-Q1, 2026-03, 2026-03-02) and
+// give the day after it ends.
+var periods = map[string]func(label string) (from, to time.Time, err error){
+	"year": func(v string) (time.Time, time.Time, error) {
+		t, err := time.Parse("2006", v)
+		return t, t.AddDate(1, 0, 0), err
+	},
+	"quarter": func(v string) (time.Time, time.Time, error) {
+		var y, q int
+		if n, _ := fmt.Sscanf(v, "%4d-Q%1d", &y, &q); n != 2 || q < 1 || q > 4 || fmt.Sprintf("%04d-Q%d", y, q) != v {
+			return time.Time{}, time.Time{}, fmt.Errorf("%q is not a quarter", v)
+		}
+		t := time.Date(y, time.Month(q*3-2), 1, 0, 0, 0, 0, time.UTC)
+		return t, t.AddDate(0, 3, 0), nil
+	},
+	"month": func(v string) (time.Time, time.Time, error) {
+		t, err := time.Parse("2006-01", v)
+		return t, t.AddDate(0, 1, 0), err
+	},
+	"week": func(v string) (time.Time, time.Time, error) {
+		t, err := time.Parse(time.DateOnly, v)
+		return t, t.AddDate(0, 0, 7), err
+	},
+	"day": func(v string) (time.Time, time.Time, error) {
+		t, err := time.Parse(time.DateOnly, v)
+		return t, t.AddDate(0, 0, 1), err
+	},
+}
+
+// Is is the Malloy condition keeping the rows where the dimension shows value: for a period, the
+// days it spans in the business time zone; otherwise the text itself.
+func (d *Dataset) Is(dim, value string) (string, error) {
+	path, ok := d.Dimensions[dim]
+	if !ok {
+		return "", fmt.Errorf("unknown dimension %q", dim)
+	}
+	i := strings.LastIndex(path, ".")
+	if read := periods[path[i+1:]]; read != nil {
+		from, to, err := read(value)
+		if err != nil {
+			return "", fmt.Errorf("%s: %q is not one of its periods", dim, value)
+		}
+		return between(path[:i], from, to), nil
+	}
+	return dim + " = '" + escapes.Replace(value) + "'", nil
+}
+
+var escapes = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\n", `\n`, "\r", `\r`, "\t", `\t`)
 
 // Today is the day it is now in the business time zone, at midnight there.
 func (d *Dataset) Today(now time.Time) time.Time {

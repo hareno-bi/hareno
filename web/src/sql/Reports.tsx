@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Style, Tokens } from '../s3/theme'
 import { caption, type Dash, type Labels, type Result } from './chart'
 import Share from './Share'
-import TileOutput from './Tile'
+import TileOutput, { picks } from './Tile'
 
 // Saved reports (Phase 2 round 1, R1-4): the list, and a published report as its viewers see it.
 // Every write sends Content-Type: application/json: the API refuses cookie-authenticated writes
@@ -61,7 +61,10 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
 
 type Published = { revision: number; publishedAt: string; body: Dash }
 // One tile's result: rows (perhaps the last good ones, marked stale) or only an error.
-type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[]; dated?: boolean }
+type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[]; dated?: boolean; drill?: Drill }
+// Drill: a tile drilling down a hierarchy (server: drill.go): its own level and those below, and
+// how far down it is (levels[at] is shown)
+type Drill = { levels: string[]; at: number }
 type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
 export type Filters = Record<string, string>
@@ -93,6 +96,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const [dates, setDates] = useState<Dates | null>(initialDates)
   const currentDates = useRef(dates)
   currentDates.current = dates
+  const [drill, setDrill] = useState<Record<number, string[]>>({}) // by tile: the values clicked, top down
+  const currentDrill = useRef(drill)
+  currentDrill.current = drill
 
   // refresh asks for every tile; the server answers from its cache unless the data has changed.
   const refresh = async () => {
@@ -101,10 +107,10 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       return
     }
     busy.current = true
-    const sent = current.current, sentDates = currentDates.current
+    const sent = current.current, sentDates = currentDates.current, sentDrill = currentDrill.current
     try {
       const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates }) })
+      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -116,7 +122,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       setFailed('Hareno is not reachable.')
     } finally {
       busy.current = false
-      if (again.current || sent !== current.current || sentDates !== currentDates.current) {
+      if (again.current || sent !== current.current || sentDates !== currentDates.current || sentDrill !== currentDrill.current) {
         again.current = false
         refresh()
       }
@@ -133,6 +139,14 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const range = (d: Dates | null) => {
     currentDates.current = d
     setDates(d)
+    refresh()
+  }
+  // go shows tile i drilled down through values (none: its own level)
+  const go = (i: number, values: string[]) => {
+    const next = { ...currentDrill.current, [i]: values }
+    if (!values.length) delete next[i]
+    currentDrill.current = next
+    setDrill(next)
     refresh()
   }
   // a click on a chart filters by what was clicked, or clears that filter if it was already set
@@ -199,16 +213,32 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
           const not = res?.columns ? Object.keys(filters).filter((c) => !res.filtered?.includes(c)) : []
           const undated = !!res?.columns && !!dates && !res.dated
           const mine = Object.fromEntries((res?.filtered ?? []).map((c) => [c, [filters[c]]]))
-          const q = new URLSearchParams({ ...(res?.filtered?.length ? { filters: JSON.stringify(mine) } : {}), ...(dates && res?.dated ? { dates: JSON.stringify(dates) } : {}) }).toString()
+          const down = drill[i] ?? [], dr = res?.drill
+          const q = new URLSearchParams({ ...(res?.filtered?.length ? { filters: JSON.stringify(mine) } : {}), ...(dates && res?.dated ? { dates: JSON.stringify(dates) } : {}),
+            ...(down.length ? { drill: JSON.stringify(down) } : {}) }).toString()
+          // drilled, the chart shows the level below in place of the tile's own
+          const spec = dr && t.chart ? { ...t.chart, x: t.chart.x === dr.levels[0] ? dr.levels[dr.at] : t.chart.x, split: t.chart.split === dr.levels[0] ? dr.levels[dr.at] : t.chart.split } : t.chart
+          const drills = !!dr && dr.at < dr.levels.length - 1 && t.show === 'chart' && !!spec && picks(spec.kind) && spec.x === dr.levels[dr.at]
           const csv = `/api/reports/${id}/tiles/${i}/csv` + (q ? `?${q}` : '')
           return (
             <section key={i} className={'card tile' + (t.wide ? ' wide' : '') + (res?.stale ? ' is-stale' : '')} aria-label={name}>
               {t.title && <header><h3>{t.title}</h3></header>}
               {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.map((c) => caption(names, c)).join(', ')}: this tile has no such column.</p>}
               {undated && <p className="unfiltered muted">Not filtered by date: {t.dataset ? 'its dataset has no date set' : 'a SQL tile has no date set'}.</p>}
+              {(down.length > 0 || drills) && (
+                <nav className="drill muted" aria-label="Drill-down">
+                  {down.length > 0 && <>
+                    <button onClick={() => go(i, down.slice(0, -1))} title="Go up a level">↑ Up</button>
+                    <button className="link" onClick={() => go(i, [])}>All</button>
+                    {down.map((v, k) => <span key={k}> › {k < down.length - 1 ? <button className="link" onClick={() => go(i, down.slice(0, k + 1))}>{v}</button> : <b>{v}</b>}</span>)}
+                  </>}
+                  {drills && <span>{down.length > 0 && ' · '}Click a {caption(names, dr.levels[dr.at]).toLowerCase()} to see it by {caption(names, dr.levels[dr.at + 1]).toLowerCase()}.</span>}
+                </nav>
+              )}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
-                : <TileOutput result={res as Result} spec={t.chart} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
+                : <TileOutput result={res as Result} spec={spec} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady}
+                    onPick={drills ? (_, v) => { if (v !== '(null)') go(i, [...down, v]) } : pick} />}
               {res?.columns && (
                 <p className="as-of muted">
                   <span>

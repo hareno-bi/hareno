@@ -32,6 +32,8 @@ type DatasetQuery struct {
 	Dataset    string   `json:"dataset"`
 	Dimensions []string `json:"dimensions"`
 	Measures   []string `json:"measures"`
+	// Where holds Malloy conditions Hareno adds itself (a drill-down, drill.go), never the client's.
+	Where []string `json:"-"`
 }
 
 func (q *DatasetQuery) valid() bool {
@@ -140,7 +142,7 @@ func (ds *Datasets) tile(ctx context.Context, connection string, conn Connection
 		return "", nil, false, err
 	}
 	on := f.on(base.text)
-	conds := where(f, on)
+	conds := append(slices.Clone(q.Where), where(f, on)...)
 	d := ds.ByName[q.Dataset]
 	dated := dates != nil && d.Date != ""
 	if dated {
