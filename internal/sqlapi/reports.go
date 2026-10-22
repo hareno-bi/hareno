@@ -403,7 +403,7 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, t := range rep.Draft.Tiles {
-		sql, args, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, t.Matrix)
+		sql, args, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, t.Matrix)
 		if err == nil {
 			_, err = h.exec(ctx, sub, rep, scope, sql, args...)
 		}
@@ -435,7 +435,9 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 }
 
 // RunReport runs every tile of the published revision, narrowed by the viewer's filters
-// ({"filters": {"<column>": ["<value>", ...]}}, see filters.go); a tile that fails carries its error.
+// ({"filters": {"<column>": ["<value>", ...]}}, see filters.go) and date range ({"dates": {"last":
+// "3m"}} or {"from", "to"}, dates.go); a tile that fails carries its error. "dates" in the reply
+// says whether any tile has a date a range would narrow.
 func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	rep, rt, bearer, sub, ok := h.load(w, r)
 	if !ok {
@@ -444,9 +446,10 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var req struct {
 		Filters Filters `json:"filters"`
+		Dates   *Dates  `json:"dates"`
 	}
-	if !decode(w, r, &req) || !req.Filters.valid() {
-		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}}`)
+	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() {
+		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}}`)
 		return
 	}
 	if rep.Published == nil {
@@ -496,19 +499,24 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	// filter bar's choices. Then as shown: filtered, and a matrix totalled. All runs are cached.
 	all := make([]tileResult, len(body.Tiles))
 	tiles := make([]tileResult, len(body.Tiles))
+	datable := false
 	for i, t := range body.Tiles {
-		base, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil)
+		if t.Dataset != nil && h.Datasets != nil && h.Datasets.ByName[t.Dataset.Dataset] != nil && h.Datasets.ByName[t.Dataset.Dataset].Date != "" {
+			datable = true
+		}
+		base, _, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, nil)
 		if err == nil {
 			all[i] = get(base)
 		}
 		if err == nil && all[i].response != nil {
 			var sql string
 			var args []any
-			sql, args, tiles[i].Filtered, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, t.Matrix)
+			var filtered []string
+			var dated bool
+			sql, args, filtered, dated, err = h.tileQuery(ctx, rep.Connection, t, all[i].Columns, req.Filters, req.Dates, t.Matrix)
 			if err == nil {
-				filtered := tiles[i].Filtered
 				tiles[i] = get(sql, args...)
-				tiles[i].Filtered = filtered
+				tiles[i].Filtered, tiles[i].Dated = filtered, dated
 			}
 		} else if err == nil {
 			tiles[i] = all[i]
@@ -524,8 +532,8 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 			cols = append(cols, c)
 		}
 	}
-	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters)
-	reply(w, map[string]any{"tiles": tiles, "data": data, "options": options(cols, all)})
+	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates)
+	reply(w, map[string]any{"tiles": tiles, "data": data, "options": options(cols, all), "dates": datable})
 }
 
 // scope is the row scope the report runs under for the user, and whose it is: their own, or for

@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func load(t *testing.T, file string) *Dataset {
@@ -102,6 +103,8 @@ measures:
 		{"root: a", "root: a\nextra: 1", "field extra not found"},
 		{"  m: {sum: amt}\n", "  m: {sum: amt}\ndisplay:\n  x: {label: X}\n", "display x: not a dimension or measure"},
 		{"  m: {sum: amt}\n", "  m: {sum: amt}\ndisplay:\n  m: {format: euros}\n", "display m: format must be"},
+		{"root: a", "root: a\ndate: nope", "date nope: must be a dimension"},
+		{"  d: bj.col\n", "  d: bj.col\n  dm: bj.col.month\ndate: dm\n", "date dm: must be a dimension"},
 	} {
 		doc := strings.Replace(base, tc.from, tc.to, 1)
 		_, err := Parse([]byte(doc))
@@ -121,6 +124,11 @@ func TestPlan(t *testing.T) {
 		if !strings.Contains(q, want) {
 			t.Errorf("plan lacks %q:\n%s", want, q)
 		}
+	}
+	// a date range is read in the business time zone: 17:00 UTC on 21 October is the 22nd in Hong Kong
+	today := d.Today(time.Date(2026, 10, 21, 17, 0, 0, 0, time.UTC))
+	if got := d.Between(today.AddDate(0, -3, 1), today.AddDate(0, 0, 1)); got != "ordered_at >= @2026-07-23 and ordered_at < @2026-10-23" {
+		t.Errorf("between: %s", got)
 	}
 	if _, err := d.Plan(Query{Dimensions: []string{"category"}, Measures: []string{"shipping"}}); !errors.Is(err, ErrGrain) {
 		t.Errorf("C06 must be refused by the planner, got %v", err)

@@ -31,6 +31,9 @@ type Dataset struct {
 	Dimensions map[string]string  `yaml:"dimensions"` // name -> path from the root, e.g. customer.region.region_name
 	Measures   map[string]Measure `yaml:"measures"`
 	Display    map[string]Display `yaml:"display"` // optional, by dimension or measure name
+	// Date is the dimension a dashboard's date range narrows (a time or date, read in TimeZone);
+	// optional: without it, date ranges leave the dataset's tiles as they are.
+	Date string `yaml:"date"`
 
 	joins map[string]Join
 	loc   *time.Location
@@ -172,6 +175,12 @@ func (d *Dataset) validate() error {
 			bad("measure %s: %v", name, err)
 		}
 	}
+	if d.Date != "" {
+		path, ok := d.Dimensions[d.Date]
+		if !ok || timeframes[path[strings.LastIndex(path, ".")+1:]] { // e.g. ordered_at.month
+			bad("date %s: must be a dimension holding a time or date, not a month or other period", d.Date)
+		}
+	}
 	for name, s := range d.Display {
 		_, dim := d.Dimensions[name]
 		if _, ok := d.Measures[name]; !ok && !dim {
@@ -273,3 +282,16 @@ func (d *Dataset) path(p string) ([]string, error) {
 }
 
 var timeframes = map[string]bool{"year": true, "quarter": true, "month": true, "week": true, "day": true, "hour": true, "minute": true}
+
+// Between is the Malloy condition keeping the dataset's date from the day from up to, not
+// including, the day to, both read in the business time zone.
+func (d *Dataset) Between(from, to time.Time) string {
+	day := func(t time.Time) string { return "@" + t.Format(time.DateOnly) }
+	return fmt.Sprintf("%s >= %s and %s < %s", d.Date, day(from), d.Date, day(to))
+}
+
+// Today is the day it is now in the business time zone, at midnight there.
+func (d *Dataset) Today(now time.Time) time.Time {
+	t := now.In(d.loc)
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, d.loc)
+}

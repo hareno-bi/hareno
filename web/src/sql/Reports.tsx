@@ -61,10 +61,14 @@ export function Reports({ onSignedOut }: { onSignedOut: () => void }) {
 
 type Published = { revision: number; publishedAt: string; body: Dash }
 // One tile's result: rows (perhaps the last good ones, marked stale) or only an error.
-type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[] }
-type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]> }
+type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolean; error?: string; filtered?: string[]; dated?: boolean }
+type Run = { tiles: TileRun[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
 export type Filters = Record<string, string>
+// A date range: a span counted back from today, or from one day to another, both included. It
+// narrows every dataset tile on its dataset's date (server: dates.go).
+export type Dates = { last: string } | { from: string; to: string }
+const lasts = { '7d': 'Last 7 days', '30d': 'Last 30 days', '3m': 'Last 3 months', '12m': 'Last 12 months', year: 'This year', lastyear: 'Last year' } as const
 
 const EVERY = 5000 // dashboards refresh every five seconds while visible (ARCHITECTURE-PLAN §8.1)
 const time = (s: string) => new Date(s).toLocaleTimeString()
@@ -72,9 +76,9 @@ const when = (s: string) => (isNaN(Date.parse(s)) ? s : new Date(s).toLocaleStri
 
 // embedded: shown in another site's frame (Embed): no editing or sharing, the title only if asked;
 // filters: the filters it starts with
-export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut, embedded, title = true, filters: initial = {} }: {
+export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut, embedded, title = true, filters: initial = {}, dates: initialDates = null }: {
   id: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
-  embedded?: boolean; title?: boolean; filters?: Filters
+  embedded?: boolean; title?: boolean; filters?: Filters; dates?: Dates | null
 }) {
   const [report, setReport] = useState<{ published?: Published; canEdit: boolean; canExport: boolean } | null>(null)
   const [run, setRun] = useState<Run | null>(null)
@@ -86,6 +90,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   const again = useRef(false) // filters changed during a refresh: refresh once more after it
   const current = useRef(filters) // for the poll, which keeps the first render's refresh
   current.current = filters
+  const [dates, setDates] = useState<Dates | null>(initialDates)
+  const currentDates = useRef(dates)
+  currentDates.current = dates
 
   // refresh asks for every tile; the server answers from its cache unless the data has changed.
   const refresh = async () => {
@@ -94,10 +101,10 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       return
     }
     busy.current = true
-    const sent = current.current
+    const sent = current.current, sentDates = currentDates.current
     try {
       const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f }) })
+      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -109,7 +116,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       setFailed('Hareno is not reachable.')
     } finally {
       busy.current = false
-      if (again.current || sent !== current.current) {
+      if (again.current || sent !== current.current || sentDates !== currentDates.current) {
         again.current = false
         refresh()
       }
@@ -121,6 +128,11 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
     else next[column] = value
     current.current = next
     setFilters(next)
+    refresh()
+  }
+  const range = (d: Dates | null) => {
+    currentDates.current = d
+    setDates(d)
     refresh()
   }
   // a click on a chart filters by what was clicked, or clears that filter if it was already set
@@ -178,18 +190,22 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
       <FilterBar columns={[...new Set([...(pub.body.filters ?? []), ...Object.keys(filters)])]} filters={filters}
-        options={run?.options ?? {}} offered={pub.body.filters ?? []} names={names} set={filter} />
+        options={run?.options ?? {}} offered={pub.body.filters ?? []} names={names} set={filter}
+        dates={run?.dates ? dates : undefined} setDates={range} />
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
           const res = run?.tiles[i]
           const name = t.title || `Tile ${i + 1}`
           const not = res?.columns ? Object.keys(filters).filter((c) => !res.filtered?.includes(c)) : []
+          const undated = !!res?.columns && !!dates && !res.dated
           const mine = Object.fromEntries((res?.filtered ?? []).map((c) => [c, [filters[c]]]))
-          const csv = `/api/reports/${id}/tiles/${i}/csv` + (res?.filtered?.length ? `?filters=${encodeURIComponent(JSON.stringify(mine))}` : '')
+          const q = new URLSearchParams({ ...(res?.filtered?.length ? { filters: JSON.stringify(mine) } : {}), ...(dates && res?.dated ? { dates: JSON.stringify(dates) } : {}) }).toString()
+          const csv = `/api/reports/${id}/tiles/${i}/csv` + (q ? `?${q}` : '')
           return (
             <section key={i} className={'card tile' + (t.wide ? ' wide' : '') + (res?.stale ? ' is-stale' : '')} aria-label={name}>
               {t.title && <header><h3>{t.title}</h3></header>}
               {not.length > 0 && <p className="unfiltered muted">Not filtered by {not.map((c) => caption(names, c)).join(', ')}: this tile has no such column.</p>}
+              {undated && <p className="unfiltered muted">Not filtered by date: {t.dataset ? 'its dataset has no date set' : 'a SQL tile has no date set'}.</p>}
               {!res ? <div className="state loading">Loading…</div>
                 : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
                 : <TileOutput result={res as Result} spec={t.chart} show={t.show} matrix={t.matrix} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onPick={pick} />}
@@ -216,13 +232,15 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
 
 // FilterBar shows a choice per filter column: the bar's own, and any added by clicking a chart
 // (those can be removed). Choices are the values in the viewer's own results.
-function FilterBar({ columns, filters, options, offered, names, set }: {
+// dates is the date range, or undefined when no tile has a date a range would narrow.
+function FilterBar({ columns, filters, options, offered, names, set, dates, setDates }: {
   columns: string[]; filters: Filters; options: Record<string, string[]>; offered: string[]; names: Labels
-  set: (column: string, value: string | null) => void
+  set: (column: string, value: string | null) => void; dates?: Dates | null; setDates: (d: Dates | null) => void
 }) {
-  if (!columns.length) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
+  if (!columns.length && dates === undefined) return <p className="note muted">Click a bar or slice in a chart, or a matrix row, to filter the other tiles by it.</p>
   return (
     <div className="toolbar filter-bar" role="group" aria-label="Filters">
+      {dates !== undefined && <DateRange dates={dates} set={setDates} />}
       {columns.map((c) => (
         <span key={c} className={'filter' + (filters[c] !== undefined ? ' on' : '')}>
           <label>{caption(names, c)}{' '}
@@ -239,3 +257,36 @@ function FilterBar({ columns, filters, options, offered, names, set }: {
     </div>
   )
 }
+
+// DateRange picks the dashboard's date range: a span back from today, or two days.
+function DateRange({ dates, set }: { dates: Dates | null; set: (d: Dates | null) => void }) {
+  const [between, setBetween] = useState(dates && 'from' in dates ? dates : null) // being picked
+  const choice = dates === null ? '' : 'last' in dates ? dates.last : 'between'
+  const pick = (d: { from: string; to: string }) => {
+    setBetween(d)
+    if (d.from && d.to && d.from <= d.to) set(d)
+  }
+  return (
+    <span className={'filter' + (dates ? ' on' : '')}>
+      <label>Dates{' '}
+        <select value={between ? 'between' : choice} onChange={(e) => {
+          const v = e.target.value
+          const today = new Date().toISOString().slice(0, 10)
+          if (v === 'between') return setBetween(dates && 'from' in dates ? dates : { from: today, to: today })
+          setBetween(null)
+          set(v ? { last: v } : null)
+        }}>
+          <option value="">All dates</option>
+          {Object.entries(lasts).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          <option value="between">Between…</option>
+        </select>
+      </label>
+      {between && <>
+        <input type="date" aria-label="Dates from" value={between.from} max={between.to} onChange={(e) => pick({ ...between, from: e.target.value })} />
+        <span aria-hidden>to</span>
+        <input type="date" aria-label="Dates to" value={between.to} min={between.from} onChange={(e) => pick({ ...between, to: e.target.value })} />
+      </>}
+    </span>
+  )
+}
+

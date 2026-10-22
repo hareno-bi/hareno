@@ -147,7 +147,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sql, _, _, err := h.tileQuery(ctx, req.Connection, Tile{SQL: req.SQL, Dataset: req.Dataset}, nil, nil, req.Matrix)
+	sql, _, _, _, err := h.tileQuery(ctx, req.Connection, Tile{SQL: req.SQL, Dataset: req.Dataset}, nil, nil, nil, req.Matrix)
 	if err != nil {
 		audit.Info("sql failed", "error", err.Error())
 		fail(w, http.StatusBadRequest, err.Error())

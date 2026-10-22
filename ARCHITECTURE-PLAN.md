@@ -388,6 +388,7 @@ The following reflects the team's supplied response, not independently verified 
    - **Correct totals:** filters on a dataset tile become conditions in the dataset query, applied before the measures are computed. A matrix on a dataset tile does not add up the tile's rows: each subtotal and the grand total is the dataset query again with fewer groupings, so a ratio such as margin is recalculated at every level.
    - **Limits:** filters apply to a dataset tile's text fields that it shows; dataset documents are files loaded at start (the dataset editor is Phase 3).
    - **Display:** a dataset document may give each field a label and each number a format (number, integer, money, percent), in a `display:` section; labels default to the name, capitalised. Results carry them, so tables, matrices, charts and the filter bar show "Region" and 59%, not `region_name` and 0.59. SQL tiles show their columns as written.
+   - **Date:** a dataset document may name the dimension a dashboard's date range narrows (`date: ordered_at`). The range (last 7 or 30 days, 3 or 12 months, this or last year, or two days) is worked out in the dataset's business time zone and applied as a condition before the measures, so a tile without a date column (revenue by region) narrows too. SQL tiles have no declared date and say they are not filtered.
 
 Roadmap versions are not contractual release dates. Kiban adoption stays conditional on launch acceptance criteria.
 

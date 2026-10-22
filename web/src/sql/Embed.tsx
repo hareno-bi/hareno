@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { ReportView, type Filters } from './Reports'
+import { ReportView, type Dates, type Filters } from './Reports'
 
 // Embed is a published dashboard alone, for a frame in another site (#/embed/<id>?<options>):
 //   theme=light|dark, style=<style id>  how it looks (else the viewer's own choice)
 //   title=0                              hides the dashboard's title
 //   filter.<column>=<value>              filters it starts with (row security still applies)
+//   dates=3m, or dates=2026-02-01..2026-03-31  the date range it starts with (7d, 30d, 3m, 12m, year, lastyear)
 // The viewer signs in as anywhere in Hareno. Signed out, it first tries a silent sign-in (Kiban
 // already knows the browser, e.g. through Windows sign-in), then offers a sign-in window.
 // It posts its height to the host page ({ type: 'hareno:height', height }), to size the frame.
@@ -49,12 +50,14 @@ export function Embed({ id, params, user, style, vars, themeKey, fontsReady }: {
       }}>Sign in</button>
     </div>
   )
+  const [from, to] = (params.get('dates') ?? '').split('..')
+  const dates: Dates | null = to ? { from, to } : from ? { last: from } : null
   const filters: Filters = Object.fromEntries([...params].filter(([k]) => k.startsWith('filter.')).map(([k, v]) => [k.slice(7), v]))
   return (
     <>
       {/* the session ended while open (e.g. it expired): sign in silently again */}
       <ReportView id={id} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} onSignedOut={silent}
-        embedded title={params.get('title') !== '0'} filters={filters} />
+        embedded title={params.get('title') !== '0'} filters={filters} dates={dates} />
       <p className="embed-foot muted"><a href={`/#/report/${id}`} target="_blank" rel="noopener">Open in Hareno</a></p>
     </>
   )
