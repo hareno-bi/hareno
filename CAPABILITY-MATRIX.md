@@ -56,6 +56,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 | Launch | Grid canvas: place, resize and align tiles | A tile resized and moved stays so after publish | Tiles half or full width, moved up and down |
 | Launch | Pages, and scrolling dashboards for phones (D5) | A three-page dashboard publishes; filters carry across pages; at phone width each page is one scrolling column in reading order | Done: pages as tabs (up to 10), edited in the dashboard editor; only the page shown runs its queries; filters, the date range and drill-downs carry across pages; at phone width one full-width column in tile order. Embeds take `page=` |
 | Launch | Tiles from a dataset, and SQL tiles for trusted users | Both kinds on one dashboard | Done |
+| Launch | Text between the charts, so a dashboard reads as a report | A text tile's headings, paragraphs and lists show on the dashboard, in an embed and on paper; text can never inject markup | Done: text tiles (a subset of Markdown: headings, paragraphs, lists, bold, italic), edited beside a live preview; up to 48 tiles a dashboard. Numbers inside text are typed, not yet live |
 | Launch | Draft, publish, unchanged published revisions, roll back to an earlier revision | Viewers see revision 3 while the author edits; rolling back to 2 works | Draft and publish done; rollback not yet |
 | Launch | Autosave and edit-conflict warning | Two editors: the second save is refused with a clear message, nothing is lost | Conflict check done; no autosave |
 | Launch | Languages: English, Japanese, Traditional Chinese (D7) | Every screen, message and number/date format switches with the user's language; dataset field names can be given per language | English only |
@@ -67,6 +68,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 |---|---|---|---|
 | Launch | Chart catalog (D1) in the signed-off look, light and dark | Each type renders the sample data in both themes; screenshots signed off | 37 chart types, all on the Chart samples page in every style, light and dark; screenshots not yet signed off. AI visuals not started |
 | Launch | Number formats from the dataset on axes, tooltips and cells | Margin shows as 61.8% everywhere | Done |
+| Launch | Targets: a KPI card says whether its value meets a target; columns and lines draw it across | A KPI with "lower is better" shows a fall as good and its target status; a column chart shows its dashed target line | Done: a target and "higher/lower is better" per chart (KPI card, column, bar, stacked, line, area, combo), set in the editor in the value's own terms (a percent as a percent) |
 | Launch | Table and matrix: subtotals, grand total, up to 3 row levels and 1 column level, sticky headers | Q15 matrix through the dataset | Done |
 | Launch | Conditional formatting on table and matrix cells (colour by value) | A rule colours negative profit red | Not started |
 | Launch | Accessibility: keyboard use, contrast, reduced motion, a table alternative for every chart | Accessibility review passes (Phase 4) | Partly |
@@ -87,7 +89,7 @@ Answers given 2026-10-15 are recorded; open items still need an answer.
 | | Capability | Test | Today |
 |---|---|---|---|
 | Launch | CSV export of a tile, the downloader's own rows only | Exit suite: export as a North-only viewer holds North only | Done |
-| Launch | PDF of a dashboard (D2) | The PDF matches the screen for a North-only viewer | Not started |
+| Launch | PDF of a dashboard (D2) | The PDF matches the screen for a North-only viewer | First step done: "Print or PDF" lays every page out at A4 width (`#/print/<id>`, with the dashboard's filters and dates), charts drawn whole, tables with every row; the browser's Save as PDF makes the file. A PDF made by the server (for schedules) is not started |
 | Launch | Scheduled email delivery as CSV, PDF or PNG (D3) | A weekly schedule sends each recipient their own rows; a recipient who lost access gets nothing | Not started |
 | Later | Excel export, paginated print-layout reports, detail export (D6), delivery to chat tools | | |
 

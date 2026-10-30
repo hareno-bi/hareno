@@ -167,6 +167,9 @@ func newRig(t *testing.T, exportRows int) *rig {
 	mux.HandleFunc("GET /api/reports/{id}/shares", h.ListShares)
 	mux.HandleFunc("POST /api/reports/{id}/shares", h.Share)
 	mux.HandleFunc("DELETE /api/reports/{id}/shares/{member}", h.Unshare)
+	h.SampleReport = "Sample"
+	mux.HandleFunc("GET /api/sample-report", h.SampleReportView)
+	mux.HandleFunc("POST /api/sample-report/run", h.SampleReportRun)
 
 	return &rig{f, kiban, mux, tick}
 }

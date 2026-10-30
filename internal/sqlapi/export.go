@@ -92,7 +92,7 @@ func (h *Handler) ExportTile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, err := strconv.Atoi(r.PathValue("n"))
-	if err != nil || n < 0 || n >= len(body.Tiles) {
+	if err != nil || n < 0 || n >= len(body.Tiles) || body.Tiles[n].Show == "text" {
 		fail(w, http.StatusNotFound, "no such tile")
 		return
 	}

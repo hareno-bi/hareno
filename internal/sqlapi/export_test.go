@@ -2,6 +2,7 @@ package sqlapi
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,5 +61,11 @@ SELECT row_to_json(x) FROM x
 ) AS hareno_q(hareno_row) CROSS JOIN LATERAL json_to_record(hareno_row::json) AS hareno_r("month" timestamptz, "revenue" numeric) ORDER BY 1`
 	if got := unwrap(c, "Asia/Hong_Kong", 1); got != want {
 		t.Errorf("unwrap = %s", got)
+	}
+	// a date column: its month, or its day, labelled the same way but with no time zone to apply
+	c.Columns = []string{"month", "day"}
+	c.Types = []map[string]any{{"kind": "date_type", "timeframe": "month"}, {"kind": "date_type"}}
+	if got := unwrap(c, "Asia/Hong_Kong", 0); !strings.HasPrefix(got, `SELECT to_char(hareno_r."month", 'YYYY-MM') AS "month", to_char(hareno_r."day", 'YYYY-MM-DD') AS "day" FROM`) {
+		t.Errorf("unwrap of dates = %s", got)
 	}
 }

@@ -52,6 +52,9 @@ type Handler struct {
 	Members     Members
 	Datasets    *Datasets // governed datasets (datasets.go); nil when none are configured
 	Demo        Demo      // sample data for the sign-in page of dev and demo stacks; none when SQL is empty
+	// SampleReport is the title of a published dashboard anyone may view, signed in or not, with
+	// every row (sample.go): dev and demo stacks only; none when empty.
+	SampleReport string
 
 	results results // dashboard results (cache.go)
 }

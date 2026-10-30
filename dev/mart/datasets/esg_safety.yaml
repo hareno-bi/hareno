@@ -1,0 +1,33 @@
+# ESG report demo (mock data): hours worked on site and injuries, by month. Rates are per
+# 200,000 hours worked (about 100 people for a year).
+name: esg_safety
+connection: mart
+timezone: Asia/Hong_Kong
+date: period
+root: safety
+tables:
+  safety:
+    table: esg.safety_month
+dimensions:
+  period: period
+  fiscal_year: fiscal_year
+  period_month: period.month
+hierarchies:
+  time: [fiscal_year, period_month]
+measures:
+  hours_on_site: {sum: hours_worked}
+  recordable_injuries: {sum: recordable}
+  lost_time_injuries: {sum: lost_time}
+  days_lost: {sum: lost_days}
+  ltifr: {expr: "lost_time_injuries * 200000 / hours_on_site"}
+  trir: {expr: "recordable_injuries * 200000 / hours_on_site"}
+display:
+  period: {label: Date}
+  fiscal_year: {label: Financial year}
+  period_month: {label: Month}
+  hours_on_site: {label: Hours worked, format: integer}
+  recordable_injuries: {label: Recordable injuries, format: integer}
+  lost_time_injuries: {label: Lost-time injuries, format: integer}
+  days_lost: {label: Days lost, format: integer}
+  ltifr: {label: Lost-time injury rate, format: number}
+  trir: {label: Recordable injury rate, format: number}

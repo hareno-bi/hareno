@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/rosschiu/kiban/sdk"
@@ -55,16 +56,20 @@ type Tile struct {
 	Title  string          `json:"title"`
 	SQL    string          `json:"sql"`
 	Chart  json.RawMessage `json:"chart"`            // the editor's chart settings, kept as given
-	Show   string          `json:"show"`             // "chart", "table" or "matrix"
+	Show   string          `json:"show"`             // "chart", "table", "matrix" or "text"
 	Wide   bool            `json:"wide"`             // the dashboard's full width, or half
 	Page   int             `json:"page,omitempty"`   // which of the pages it is on, from 0
 	Matrix *Matrix         `json:"matrix,omitempty"` // with show "matrix" only (matrix.go)
 	// Dataset, instead of SQL, builds the tile from a governed dataset (datasets.go).
 	Dataset *DatasetQuery `json:"dataset,omitempty"`
+	// Text is a text tile's words (show "text"), with no query: headings, paragraphs and lists
+	// between the charts, as a report reads. The browser formats it (a subset of Markdown).
+	Text string `json:"text,omitempty"`
 }
 
 const (
-	maxTiles = 24
+	maxTiles = 48
+	maxText  = 20000 // characters in a text tile
 	maxPages = 10
 )
 
@@ -86,7 +91,13 @@ func (d Draft) valid() bool {
 		}
 	}
 	for _, t := range d.Tiles {
-		if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
+		if t.Show == "text" {
+			if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || t.SQL != "" || t.Dataset != nil || t.Matrix != nil || strings.TrimSpace(t.Text) == "" || utf8.RuneCountInString(t.Text) > maxText || len(t.Title) > 200 {
+				return false
+			}
+			continue
+		}
+		if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) || t.Text != "" ||
 			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") ||
 			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid(t.Dataset != nil)) {
 			return false
@@ -420,6 +431,9 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, t := range rep.Draft.Tiles {
+		if t.Show == "text" {
+			continue
+		}
 		sql, args, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, t.Matrix)
 		if err == nil {
 			_, err = h.exec(ctx, sub, rep, scope, sql, args...)
@@ -460,31 +474,45 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	var req struct {
-		Filters Filters          `json:"filters"`
-		Dates   *Dates           `json:"dates"`
-		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
-		Page    int              `json:"page"`  // the page shown: only its tiles run
-	}
-	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
-		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
+	req, body, ok := h.runRequest(w, r, rep)
+	if !ok {
 		return
 	}
-	if rep.Published == nil {
-		fail(w, http.StatusNotFound, "this report has not been published")
-		return
-	}
-	var body Draft
-	if err := h.DB.QueryRow(ctx, `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
-		fail(w, http.StatusInternalServerError, "could not read the report")
-		return
-	}
-	scope, data, err := h.scope(ctx, bearer, sub, rep, rt)
+	scope, data, err := h.scope(r.Context(), bearer, sub, rep, rt)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
+	h.run(w, r.Context(), sub, rep, body, scope, data, req)
+}
+
+// runReq is what a run of a published dashboard asks for.
+type runReq struct {
+	Filters Filters          `json:"filters"`
+	Dates   *Dates           `json:"dates"`
+	Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
+	Page    int              `json:"page"`  // the page shown: only its tiles run
+}
+
+// runRequest reads a run request and the report's published revision; on failure it has answered.
+func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request, rep reportRow) (req runReq, body Draft, ok bool) {
+	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
+		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
+		return req, body, false
+	}
+	if rep.Published == nil {
+		fail(w, http.StatusNotFound, "this report has not been published")
+		return req, body, false
+	}
+	if err := h.DB.QueryRow(r.Context(), `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
+		fail(w, http.StatusInternalServerError, "could not read the report")
+		return req, body, false
+	}
+	return req, body, true
+}
+
+// run runs the page asked for of a published dashboard under scope, for sub, and answers.
+func (h *Handler) run(w http.ResponseWriter, ctx context.Context, sub string, rep reportRow, body Draft, scope sqlexec.Scope, data string, req runReq) {
 	conn, ok := h.Connections[rep.Connection]
 	if !ok {
 		fail(w, http.StatusNotFound, "the report's connection has been removed")
@@ -523,7 +551,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		if t.Dataset != nil && h.Datasets != nil && h.Datasets.ByName[t.Dataset.Dataset] != nil && h.Datasets.ByName[t.Dataset.Dataset].Date != "" {
 			datable = true // on any page: the date range is the dashboard's
 		}
-		if t.Page != req.Page {
+		if t.Page != req.Page || t.Show == "text" {
 			continue
 		}
 		base, _, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, nil)
@@ -562,9 +590,9 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates, "drill", req.Drill, "page", req.Page)
-	shown := make([]*tileResult, len(tiles)) // null for the other pages' tiles
+	shown := make([]*tileResult, len(tiles)) // null for the other pages' tiles, and text tiles
 	for i := range tiles {
-		if body.Tiles[i].Page == req.Page {
+		if body.Tiles[i].Page == req.Page && body.Tiles[i].Show != "text" {
 			shown[i] = &tiles[i]
 		}
 	}

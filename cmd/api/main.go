@@ -44,6 +44,9 @@ type config struct {
 		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
 		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
 		DemoAccounts []signin.Account `yaml:"demo_accounts"`
+		// The title of a published dashboard anyone may view without signing in, with every row
+		// (the Sample Report tab). Dev and demo stacks only.
+		SampleReport string `yaml:"sample_report"`
 		// Sample data shown on the sign-in page: a fixed query, run with every row. Dev and demo stacks only.
 		DemoData sqlapi.Demo `yaml:"demo_data"`
 	} `yaml:"signin"`
@@ -106,6 +109,10 @@ func main() {
 		if h.Demo.SQL != "" {
 			mux.HandleFunc("GET /api/demo-data", h.DemoData)
 		}
+		if h.SampleReport != "" {
+			mux.HandleFunc("GET /api/sample-report", h.SampleReportView)
+			mux.HandleFunc("POST /api/sample-report/run", h.SampleReportRun)
+		}
 		mux.HandleFunc("GET /auth/login", si.Login)
 		mux.HandleFunc("GET /auth/callback", si.Callback)
 		mux.HandleFunc("POST /auth/logout", si.LogoutHandler)
@@ -131,12 +138,12 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 	if err != nil {
 		return nil, nil, err
 	}
-	text := os.Expand(string(b), func(k string) string {
-		if v := os.Getenv(k); v != "" || k != "HARENO_PUBLIC_HOST" {
-			return v
-		}
-		return "localhost"
-	})
+	// Unset, HARENO_PUBLIC_HOST is localhost, and Hareno and Kiban's login pages are on its demo ports;
+	// HARENO_PUBLIC_URL and HARENO_KIBAN_URL set them outright (e.g. https://hareno.example.com).
+	host := cmp.Or(os.Getenv("HARENO_PUBLIC_HOST"), "localhost")
+	defaults := map[string]string{"HARENO_PUBLIC_HOST": host,
+		"HARENO_PUBLIC_URL": "http://" + host + ":55450", "HARENO_KIBAN_URL": "http://" + host + ":55451"}
+	text := os.Expand(string(b), func(k string) string { return cmp.Or(os.Getenv(k), defaults[k]) })
 	var cfg config
 	dec := yaml.NewDecoder(strings.NewReader(text))
 	dec.KnownFields(true)
@@ -171,14 +178,15 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		return nil, nil, err
 	}
 	h := &sqlapi.Handler{
-		DB:          appDB,
-		Grants:      k,
-		People:      authz.Directory{Gateway: cfg.Kiban.Gateway},
-		Members:     k,
-		Demo:        cfg.Signin.DemoData,
-		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
-		Connections: map[string]sqlapi.Connection{},
-		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
+		DB:           appDB,
+		Grants:       k,
+		People:       authz.Directory{Gateway: cfg.Kiban.Gateway},
+		Members:      k,
+		Demo:         cfg.Signin.DemoData,
+		SampleReport: cfg.Signin.SampleReport,
+		Authz:        &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
+		Connections:  map[string]sqlapi.Connection{},
+		Log:          slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
 	}
 	for name, c := range cfg.Connections {
 		if c.Mode != "database-enforced" {

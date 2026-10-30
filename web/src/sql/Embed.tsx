@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { ReportView, type Dates, type Filters } from './Reports'
+import { ReportView, startWith } from './Reports'
 
 // Embed is a published dashboard alone, for a frame in another site (#/embed/<id>?<options>):
 //   theme=light|dark, style=<style id>  how it looks (else the viewer's own choice)
@@ -51,9 +51,7 @@ export function Embed({ id, params, user, style, vars, themeKey, fontsReady }: {
       }}>Sign in</button>
     </div>
   )
-  const [from, to] = (params.get('dates') ?? '').split('..')
-  const dates: Dates | null = to ? { from, to } : from ? { last: from } : null
-  const filters: Filters = Object.fromEntries([...params].filter(([k]) => k.startsWith('filter.')).map(([k, v]) => [k.slice(7), v]))
+  const { filters, dates } = startWith(params)
   return (
     <>
       {/* the session ended while open (e.g. it expired): sign in silently again */}

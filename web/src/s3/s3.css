@@ -45,6 +45,9 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 .kpi-delta { font-size: 12px; }
 .kpi-delta.up { color: var(--up); }
 .kpi-delta.down { color: var(--down); }
+.kpi-delta.good, .kpi-target.good { color: var(--up); }
+.kpi-delta.bad, .kpi-target.bad { color: var(--down); }
+.kpi-target { font-size: 12px; margin-bottom: 2px; }
 .tile-kpi { padding: 18px 4px 8px; }
 .tile-kpi .kpi-value { font-size: 44px; line-height: 1.1; }
 .states .card { grid-column: span 1; }
@@ -198,3 +201,37 @@ dialog.share h3 { margin-top: 14px; }
 .pages button { flex: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted); white-space: nowrap; }
 .pages button[aria-selected='true'] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 .page-edit .pages { margin-top: 0; border-bottom: 0; }
+
+/* Text tiles: a report's words between its charts (Prose) */
+.prose { font-size: 14px; line-height: 1.6; max-width: 78ch; }
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose h2 { font: 600 22px/1.25 var(--font-display); margin: 4px 0 8px; text-transform: var(--heading-transform); letter-spacing: var(--heading-spacing); }
+.prose h3 { font: 600 17px/1.3 var(--font-display); margin: 14px 0 6px; }
+.prose h4 { font: 600 14px/1.3 var(--font-display); margin: 12px 0 4px; color: var(--muted); }
+.prose p { margin: 0 0 10px; }
+.prose ul, .prose ol { margin: 0 0 10px; padding-left: 22px; }
+.text-tile { background: transparent; box-shadow: none; border-color: transparent; padding-left: 4px; padding-right: 4px; backdrop-filter: none; }
+.text-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--gap); }
+.text-edit .sql-input { min-height: 180px; margin-top: 4px; font-family: inherit; }
+.text-preview { border-left: 2px solid var(--grid); padding-left: var(--gap); }
+@media (max-width: 900px) { .text-edit { grid-template-columns: minmax(0, 1fr); } }
+
+/* Print or PDF (PrintView): every page in turn, laid out on screen at the width of an A4 page
+   inside its margins, so nothing reflows (and no chart is cut) when it prints */
+.print { width: 182mm; max-width: 100%; margin: 0 auto; }
+.print .grid.dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.print .card.wide { grid-column: span 2; }
+.print .tile .pivot { max-height: none; }
+.m-row.wrap .m-cell { white-space: normal; overflow: visible; text-overflow: clip; }
+.print-head h1 { font: 600 26px/1.2 var(--font-display); margin: 8px 0 4px; }
+.print-page-name { font: 600 18px var(--font-display); margin: 24px 0 0; padding-bottom: 6px; border-bottom: 2px solid var(--text); }
+.print .card { break-inside: avoid; box-shadow: none; backdrop-filter: none; }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  header.top, .no-print { display: none !important; }
+  body, .dash { background: #fff !important; }
+  main { padding: 0; }
+  .print { max-width: none; }
+  .print-page + .print-page { break-before: page; }
+}

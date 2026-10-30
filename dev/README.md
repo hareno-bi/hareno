@@ -50,7 +50,7 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may build dashboards on, and those they may query with SQL. `GET /api/datasets` lists the datasets they may build from (`dev/mart/datasets`, listed under `datasets:` in `dev/hareno.yaml`).
 
-The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). Neither belongs in a production configuration.
+The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). The **Sample Report** tab shows one published dashboard, chosen by title (`signin.sample_report`, here the ESG report demo), to anyone, signed in or not, with every row (`GET /api/sample-report`, `POST /api/sample-report/run`; `internal/sqlapi/sample.go`); it is read only, with no downloads. None of these belongs in a production configuration.
 
 Saved reports are dashboards: a title and tiles, each its own SQL query shown as a chart or a table. They are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
 - **Changing a report** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` or `dataset_user` on its connection. Adding or changing SQL needs `sql_user`.
@@ -102,6 +102,22 @@ docker compose --profile demo up -d demo
 - Keycloak marks its cookies Secure, which browsers drop on plain HTTP, so the proxy removes the flag.
 - **Dev only.** There is no TLS, so passwords cross the network unencrypted. Use only the seeded dev accounts.
 
+### Under a domain name, with HTTPS
+
+The demo host already runs a Traefik (another project's) on ports 80 and 443, with Let's Encrypt certificates. A small proxy joins its network and passes the domain's requests to the demo on `:55450` ([`dev/demo/edge.compose.yaml`](demo/edge.compose.yaml)). Kiban's login pages are then served at the same address, under `/auth/realms/kiban/` and `/resources/`, so signing in is encrypted too:
+
+```sh
+# first: an A record for the domain pointing at the host (DNS only, so Let's Encrypt can reach it)
+HARENO_PUBLIC_ORIGIN="http://$HARENO_PUBLIC_HOST:55450,https://hareno.bsoltest.com" dev/kiban/up.sh
+HARENO_PUBLIC_URL=https://hareno.bsoltest.com HARENO_KIBAN_URL=https://hareno.bsoltest.com \
+  go run ./cmd/api -addr 127.0.0.1:55453 -config dev/hareno.yaml &
+HARENO_DOMAIN=hareno.bsoltest.com docker compose -f dev/demo/edge.compose.yaml up -d
+```
+
+- The Sample Report is at `https://hareno.bsoltest.com/#/sample`.
+- With the API on the domain, signing in from `http://$HARENO_PUBLIC_HOST:55450` also goes through the domain.
+- Toward Kiban, the proxy drops the `X-Forwarded-*` headers of the proxies in front: Kiban builds its own addresses, which the proxy rewrites.
+
 ## Embedding
 
 A published dashboard can be shown inside another site, such as a client's report portal: the site puts `https://<hareno>/#/embed/<dashboard id>` in an `<iframe>`.
@@ -112,4 +128,8 @@ A published dashboard can be shown inside another site, such as a client's repor
 - **Same site.** Hareno's session cookie is `SameSite=Lax`, so the embedding site and Hareno must share a registrable domain (e.g. `reports.example.com` and `hareno.example.com`); so must Kiban's login pages for the silent sign-in. Browsers block the cookies of a frame from another site. If they do, the frame says so and links to the dashboard in Hareno.
 - **Height.** The frame posts `{ type: 'hareno:height', height }` to the host page whenever its content changes size; the host sets the frame's height, checking the message's origin first.
 - **Test host:** `http://$HARENO_PUBLIC_HOST:55452/?d=<dashboard id>` (`dev/demo/embed-host/index.html`) shows a dashboard as a client's site would.
+
+## Print or PDF
+
+"Print or PDF" on a published dashboard opens `#/print/<dashboard id>`: every page in turn, laid out at the width of an A4 page inside its margins, in the light theme, with the filters and date range it was opened with (the same `filter.<column>=` and `dates=` options as an embed). Charts are drawn without animation and tables show every row, so the browser's Print, or Save as PDF, gives the whole report. Each dashboard page starts a new sheet.
 

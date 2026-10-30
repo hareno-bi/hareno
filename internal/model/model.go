@@ -97,6 +97,10 @@ func (d *Dataset) Shown(name string) Display {
 
 var ident = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
+// reserved are Malloy's keywords (its lexer, MalloyLexer.g4). A dimension or measure with one of
+// these names makes the generated source fail to compile, with an unhelpful message.
+var reserved = regexp.MustCompile(`^(all|and|as|asc|avg|boolean|by|case|cast|compose|count|date|days?|desc|distinct|else|end|exclude|export|extend|false|filter|for|from|full|has|hours?|import|in|include|inner|internal|is|json|left|like|max|min|minutes?|months?|not|now|null|number|on|or|pick|private|public|quarters?|right|seconds?|source|sql|string|sum|table|then|this|timestamp|timestamptz|to|true|virtual|weeks?|when|with|years?)$`)
+
 // Parse reads and validates a model document.
 func Parse(doc []byte) (*Dataset, error) {
 	var d Dataset
@@ -162,6 +166,8 @@ func (d *Dataset) validate() error {
 	for name, p := range d.Dimensions {
 		if !ident.MatchString(name) {
 			bad("dimension name %q", name)
+		} else if reserved.MatchString(name) {
+			bad("dimension name %q is a reserved word in Malloy", name)
 		}
 		if _, err := d.path(p); err != nil {
 			bad("dimension %s: %v", name, err)
@@ -170,6 +176,8 @@ func (d *Dataset) validate() error {
 	for name, m := range d.Measures {
 		if !ident.MatchString(name) {
 			bad("measure name %q", name)
+		} else if reserved.MatchString(name) {
+			bad("measure name %q is a reserved word in Malloy", name)
 		}
 		if _, ok := d.Dimensions[name]; ok {
 			bad("%s is both a dimension and a measure", name)

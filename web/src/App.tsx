@@ -4,18 +4,20 @@ import Matrix from './s3/Matrix'
 import { styles, useTheme, type Pref } from './s3/theme'
 import Editor from './sql/Editor'
 import { Embed } from './sql/Embed'
-import { ReportView, Reports } from './sql/Reports'
+import { PrintView, ReportView, Reports, SAMPLE } from './sql/Reports'
 import './s3/s3.css'
 
-const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
-type Page = keyof typeof pages | 'report' | 'embed'
-// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix, and
-// #/embed/<report id>?<options>: a published dashboard alone, for a frame in another site (Embed)
+const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype', sample: 'Sample Report' } as const
+type Page = keyof typeof pages | 'report' | 'embed' | 'print'
+// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix, #/sample (the
+// sample report: no sign-in needed),
+// #/embed/<report id>?<options>: a published dashboard alone, for a frame in another site (Embed), and
+// #/print/<report id>?<options>: every page of one, laid out for paper (PrintView)
 const fromHash = (): { page: Page; id?: string; params: URLSearchParams } => {
   const [path, query] = location.hash.slice(2).split('?')
   const [p, id] = path.split('/')
   const params = new URLSearchParams(query)
-  return p in pages || p === 'report' || p === 'embed' ? { page: p as Page, id, params } : { page: 'sql', params }
+  return p in pages || p === 'report' || p === 'embed' || p === 'print' ? { page: p as Page, id, params } : { page: 'sql', params }
 }
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
@@ -43,7 +45,7 @@ export default function App() {
   const embed = page === 'embed'
   const theme = params.get('theme')
   const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme(embed ? {
-    pref: theme === 'light' || theme === 'dark' ? theme : undefined, style: params.get('style') ?? undefined } : {})
+    pref: theme === 'light' || theme === 'dark' ? theme : undefined, style: params.get('style') ?? undefined } : page === 'print' ? { pref: 'light' } : {})
   const { user, setUser, demo, signOut } = useUser()
   const signedOut = useCallback(() => setUser(null), [setUser])
   useEffect(() => {
@@ -90,12 +92,15 @@ export default function App() {
         <main>
           {page === 'charts' && <Charts style={style} vars={vars} themeKey={key} fontsReady={fontsReady} />}
           {page === 'matrix' && <Matrix />}
-          {(page === 'sql' || page === 'reports' || page === 'report') && (user === undefined ? null
+          {page === 'sample' && <ReportView key={nav} id={SAMPLE} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+          {page === 'print' && id === SAMPLE && <PrintView key={nav} id={SAMPLE} params={params} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+          {(page === 'sql' || page === 'reports' || page === 'report' || (page === 'print' && id !== SAMPLE)) && (user === undefined ? null
             : user === null ? <SignIn demo={demo} />
             : <>
               {page === 'sql' && <Editor key={nav} reportId={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
               {page === 'reports' && <Reports key={nav} onSignedOut={signedOut} />}
               {page === 'report' && id && <ReportView key={nav} id={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+              {page === 'print' && id && <PrintView key={nav} id={id} params={params} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
             </>)}
         </main>
       </div>

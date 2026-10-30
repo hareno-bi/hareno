@@ -1,0 +1,59 @@
+# ESG report demo (mock data, dev/mart/esg.sql): electricity, solar and water by building and
+# month, with the scope 1 and 2 emissions they cause. Intensities are per occupied square metre:
+# the period's use over its average occupied area, so a year's figure is the year's, not a sum of months.
+name: esg_utilities
+connection: mart
+timezone: Asia/Hong_Kong
+date: period
+root: usage
+tables:
+  usage:
+    table: esg.resource_month
+    columns:
+      electricity_mwh: electricity_kwh / 1000.0
+      solar_mwh: solar_kwh / 1000.0
+      scope12_t: (scope1_kg + scope2_kg) / 1000.0
+  buildings:
+    table: esg.building
+    primary_key: building_id
+joins:
+  - {name: b, to: buildings, kind: one, from_key: building_id}
+dimensions:
+  period: period
+  fiscal_year: fiscal_year
+  period_month: period.month
+  building: b.building
+  use_type: b.use_type
+hierarchies:
+  time: [fiscal_year, period_month]
+measures:
+  electricity: {sum: electricity_mwh}
+  solar: {sum: solar_mwh}
+  energy: {expr: "electricity + solar"}
+  renewable_share: {ratio: [solar, energy]}
+  water: {sum: water_m3}
+  area_months: {sum: occupied_m2}
+  month_count: {count_distinct: period}
+  occupied_area: {expr: "area_months / month_count"}
+  electricity_intensity: {expr: "electricity * 1000 / occupied_area"}
+  water_intensity: {ratio: [water, occupied_area]}
+  scope12: {sum: scope12_t}
+  carbon_intensity: {expr: "scope12 * 1000 / occupied_area"}
+display:
+  period: {label: Date}
+  fiscal_year: {label: Financial year}
+  period_month: {label: Month}
+  building: {label: Building}
+  use_type: {label: Use}
+  electricity: {label: Electricity (MWh), format: integer}
+  solar: {label: Solar generated (MWh), format: number}
+  energy: {label: Total energy (MWh), format: integer}
+  renewable_share: {label: Renewable share, format: percent}
+  water: {label: Water (m³), format: integer}
+  area_months: {label: Occupied area-months (m²), format: integer}
+  month_count: {label: Months, format: integer}
+  occupied_area: {label: Average occupied area (m²), format: integer}
+  electricity_intensity: {label: Electricity per occupied m² (kWh), format: number}
+  water_intensity: {label: Water per occupied m² (m³), format: number}
+  scope12: {label: Scope 1 and 2 emissions (t CO2e), format: integer}
+  carbon_intensity: {label: Scope 1 and 2 per occupied m² (kg CO2e), format: number}

@@ -108,6 +108,8 @@ measures:
 		{"  d: bj.col\n", "  d: bj.col\nhierarchies:\n  h: [d]\n", "hierarchy h: needs two levels"},
 		{"  d: bj.col\n", "  d: bj.col\nhierarchies:\n  h: [d, x]\n", "hierarchy h: x is not a dimension"},
 		{"  d: bj.col\n", "  d: bj.col\n  dh: bj.at.hour\nhierarchies:\n  h: [dh, d]\n", "dh cannot be drilled into"},
+		{"  d: bj.col\n", "  source: bj.col\n", `dimension name "source" is a reserved word`},
+		{"  m: {sum: amt}", "  months: {sum: amt}", `measure name "months" is a reserved word`},
 	} {
 		doc := strings.Replace(base, tc.from, tc.to, 1)
 		_, err := Parse([]byte(doc))

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Style, Tokens } from '../s3/theme'
 import { caption, type Dash, type Labels, type Result } from './chart'
+import Prose from './Prose'
 import Share from './Share'
 import TileOutput, { picks } from './Tile'
 
@@ -65,12 +66,29 @@ type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolea
 // Drill: a tile drilling down a hierarchy (server: drill.go): its own level and those below, and
 // how far down it is (levels[at] is shown)
 type Drill = { levels: string[]; at: number }
-type Run = { tiles: (TileRun | null)[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
+type Run = { tiles: (TileRun | null)[]; data: 'viewer' | 'sharer' | 'sample'; options: Record<string, string[]>; dates: boolean }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
 export type Filters = Record<string, string>
 // A date range: a span counted back from today, or from one day to another, both included. It
 // narrows every dataset tile on its dataset's date (server: dates.go).
 export type Dates = { last: string } | { from: string; to: string }
+// The filters and date range a dashboard starts with, from an address's options (embed, print):
+// filter.<column>=<value>, and dates=3m or dates=2026-02-01..2026-03-31; and back.
+export function startWith(params: URLSearchParams): { filters: Filters; dates: Dates | null } {
+  const [from, to] = (params.get('dates') ?? '').split('..')
+  return {
+    filters: Object.fromEntries([...params].filter(([k]) => k.startsWith('filter.')).map(([k, v]) => [k.slice(7), v])),
+    dates: to ? { from, to } : from ? { last: from } : null,
+  }
+}
+const startQuery = (filters: Filters, dates: Dates | null) => new URLSearchParams([
+  ...Object.entries(filters).map(([c, v]) => [`filter.${c}`, v]),
+  ...(dates ? [['dates', 'last' in dates ? dates.last : `${dates.from}..${dates.to}`]] : []),
+]).toString()
+// SAMPLE is the id of the sample report: one published dashboard anyone may view, signed in or
+// not, with every row (dev and demo stacks; server: sample.go). Read only: no edits or downloads.
+export const SAMPLE = 'sample'
+const api = (id: string) => (id === SAMPLE ? '/api/sample-report' : `/api/reports/${id}`)
 const lasts = { '7d': 'Last 7 days', '30d': 'Last 30 days', '3m': 'Last 3 months', '12m': 'Last 12 months', year: 'This year', lastyear: 'Last year' } as const
 
 const EVERY = 5000 // dashboards refresh every five seconds while visible (ARCHITECTURE-PLAN §8.1)
@@ -114,7 +132,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
     const sent = current.current, sentDates = currentDates.current, sentDrill = currentDrill.current, sentPage = currentPage.current
     try {
       const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill, page: sentPage }) })
+      const r = await fetch(`${api(id)}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill, page: sentPage }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -164,7 +182,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   }
 
   useEffect(() => {
-    fetch(`/api/reports/${id}`).then(async (r) => {
+    fetch(api(id)).then(async (r) => {
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (!r.ok) return setError(body.error)
@@ -205,16 +223,18 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
         ? title && <div className="toolbar"><h2>{pub.body.title}</h2></div>
         : <div className="toolbar">
           <h2>{pub.body.title}</h2>
-          <span className="muted">Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleString()}</span>
+          <span className="muted">{id === SAMPLE ? 'Sample report: open to everyone, no sign-in needed.' : `Revision ${pub.revision}, published ${new Date(pub.publishedAt).toLocaleString()}`}</span>
           {report.canEdit && <Share id={id} />}
           {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
+          <a href={`#/print/${id}` + (startQuery(filters, dates) ? `?${startQuery(filters, dates)}` : '')} title="Every page, laid out for paper: print it or save it as a PDF">Print or PDF</a>
         </div>}
       <p className="note" role="status">
         {failed
           ? <span className="stale">Could not refresh: {failed} Showing the data from {checked ? checked.toLocaleTimeString() : 'before'}; trying again every 5 seconds.</span>
           : <>Live: checks for new data every 5 seconds{checked && `, last at ${checked.toLocaleTimeString()}`}.</>}
         {' '}
-        {run?.data === 'sharer'
+        {run?.data === 'sample' ? 'Everyone sees all of this sample report\'s data.'
+          : run?.data === 'sharer'
           ? `You are seeing the data of the person who shared this dashboard with you.${report.canExport ? ' Downloads hold your own rows only.' : ''}`
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
@@ -230,8 +250,9 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
       <div className="grid dash-grid">
         {pub.body.tiles.map((t, i) => {
           if ((t.page ?? 0) !== page) return null
-          const res = run?.tiles[i]
           const name = t.title || `Tile ${i + 1}`
+          if (t.show === 'text') return <TextTile key={i} tile={t} name={name} />
+          const res = run?.tiles[i]
           const not = res?.columns ? Object.keys(filters).filter((c) => !res.filtered?.includes(c)) : []
           const undated = !!res?.columns && !!dates && !res.dated
           const mine = Object.fromEntries((res?.filtered ?? []).map((c) => [c, [filters[c]]]))
@@ -273,7 +294,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
                     {res.asOf ? `Data as of ${when(res.asOf)}` : `Data as of ${time(res.ranAt!)}`}
                     {res.asOf && ` · queried ${time(res.ranAt!)}`}
                   </span>
-                  {report.canExport
+                  {id === SAMPLE ? null : report.canExport
                     ? <a href={csv} download
                         title={(t.show === 'matrix' ? 'The rows the matrix totals. ' : '') + (run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh')}>Download CSV</a>
                     : <button disabled title="You may not download data from this source">Download CSV</button>}
@@ -283,6 +304,96 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// TextTile shows a text tile: its words, formatted (Prose).
+function TextTile({ tile: t, name }: { tile: Dash['tiles'][number]; name: string }) {
+  return (
+    <section className={'card tile text-tile' + (t.wide ? ' wide' : '')} aria-label={name}>
+      {t.title && <header><h3>{t.title}</h3></header>}
+      <Prose text={t.text ?? ''} />
+    </section>
+  )
+}
+
+// PrintView lays out every page of a published dashboard one after another at paper width, for
+// the browser's Print or Save as PDF (#/print/<id>?<options>: filters and dates as startWith reads).
+// Charts are drawn without animation, so what prints is finished.
+export function PrintView({ id, params, style, vars, themeKey, fontsReady, onSignedOut }: {
+  id: string; params: URLSearchParams; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean; onSignedOut: () => void
+}) {
+  const [pub, setPub] = useState<Published | null>(null)
+  const [runs, setRuns] = useState<Run[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const { filters, dates } = startWith(params)
+  useEffect(() => {
+    let live = true
+    const load = async () => {
+      const r = await fetch(api(id))
+      if (r.status === 401) return onSignedOut()
+      const body = await r.json()
+      if (!r.ok || !body.published) return setError(body.error ?? 'This dashboard has not been published yet.')
+      const p: Published = body.published
+      if (!live) return
+      setPub(p)
+      const f = Object.fromEntries(Object.entries(filters).map(([c, v]) => [c, [v]]))
+      for (let k = 0; k < Math.max(p.body.pages?.length ?? 0, 1); k++) {
+        const r = await fetch(`${api(id)}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates, page: k }) })
+        const b = await r.json()
+        if (!r.ok) return setError(b.error ?? `HTTP ${r.status}`)
+        if (live) setRuns((rs) => { const out = [...rs]; out[k] = b; return out })
+      }
+    }
+    load().catch(() => setError('Hareno is not reachable.'))
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per address
+  }, [id, params.toString()])
+
+  if (error) return <div className="card sql-error" role="alert">{error}</div>
+  if (!pub) return <div className="state loading">Loading…</div>
+  const n = Math.max(pub.body.pages?.length ?? 0, 1)
+  const ready = runs.filter(Boolean).length === n
+  const names: Labels = Object.assign({}, ...runs.flatMap((r) => r?.tiles.map((t) => t?.display) ?? []))
+  const still = { ...style, chart: { ...style.chart, animationDuration: 0 } }
+  const narrowed = [...Object.entries(filters).map(([c, v]) => `${caption(names, c)}: ${v}`),
+    ...(dates ? ['last' in dates ? `Dates: ${lasts[dates.last as keyof typeof lasts] ?? dates.last}` : `Dates: ${dates.from} to ${dates.to}`] : [])]
+  return (
+    <div className="print">
+      <div className="toolbar no-print">
+        <button className="primary" onClick={() => print()} disabled={!ready}>{ready ? 'Print or save as PDF' : 'Preparing every page…'}</button>
+        <a href={`#/report/${id}`}>Back to the dashboard</a>
+        <span className="muted">For a file, choose “Save as PDF” as the printer.</span>
+      </div>
+      <header className="print-head">
+        <h1>{pub.body.title}</h1>
+        <p className="muted">
+          {narrowed.length ? `${narrowed.join(' · ')}. ` : ''}Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleDateString()};
+          printed {new Date().toLocaleString()}. {runs[0]?.data === 'sample' ? '' : runs[0]?.data === 'sharer' ? 'Shows the data of the person who shared it.' : 'Shows the data you may see.'}
+        </p>
+      </header>
+      {Array.from({ length: n }, (_, k) => (
+        <section key={k} className="print-page" aria-label={pub.body.pages?.[k] ?? pub.body.title}>
+          {n > 1 && <h2 className="print-page-name">{pub.body.pages![k]}</h2>}
+          <div className="grid dash-grid">
+            {pub.body.tiles.map((t, i) => {
+              if ((t.page ?? 0) !== k) return null
+              const name = t.title || `Tile ${i + 1}`
+              if (t.show === 'text') return <TextTile key={i} tile={t} name={name} />
+              const res = runs[k]?.tiles[i]
+              return (
+                <section key={i} className={'card tile' + (t.wide ? ' wide' : '')} aria-label={name}>
+                  {t.title && <header><h3>{t.title}</h3></header>}
+                  {!res ? <div className="state loading">Loading…</div>
+                    : !res.columns ? <div className="sql-error" role="alert">{res.error}</div>
+                    : <TileOutput result={res as Result} spec={t.chart} show={t.show} matrix={t.matrix} label={name} style={still} vars={vars} themeKey={themeKey} fontsReady={fontsReady} whole />}
+                </section>
+              )
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   )
 }

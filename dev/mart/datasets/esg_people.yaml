@@ -1,0 +1,32 @@
+# ESG report demo (mock data): the park company's staff at each year end, with the year's hires,
+# leavers and training hours. Year-end figures: add them up across years at your peril.
+name: esg_people
+connection: mart
+timezone: Asia/Hong_Kong
+root: staff
+tables:
+  staff:
+    table: esg.staff_year
+dimensions:
+  fiscal_year: fiscal_year
+  department: department
+  gender: gender
+  age_band: age_band
+measures:
+  employees: {sum: headcount}
+  hires: {sum: new_hires}
+  leaver_count: {sum: leavers}
+  turnover: {ratio: [leaver_count, employees]}
+  training: {sum: training_hours}
+  training_per_employee: {ratio: [training, employees]}
+display:
+  fiscal_year: {label: Financial year}
+  department: {label: Department}
+  gender: {label: Gender}
+  age_band: {label: Age}
+  employees: {label: Employees, format: integer}
+  hires: {label: New hires, format: integer}
+  leaver_count: {label: Leavers, format: integer}
+  turnover: {label: Turnover rate, format: percent}
+  training: {label: Training hours, format: integer}
+  training_per_employee: {label: Training hours per employee, format: number}

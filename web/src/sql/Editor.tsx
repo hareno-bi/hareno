@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import type { Style, Tokens } from '../s3/theme'
-import { aggs, blank, fit, fitMatrix, isDate, isNum, kinds, caption, latest, maps, oneValue, roundUp, splits, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
+import { aggs, blank, fit, fitMatrix, isDate, isNum, kinds, caption, latest, maps, oneValue, roundUp, splits, targets, type Agg, type Dash, type Dataset, type Kind, type Labels, type MatrixSpec, type Pick, type Result, type Show, type Spec, type TileDef } from './chart'
 import { countries, type Country } from './maps'
 import { examples } from './examples'
+import Prose from './Prose'
 import Share from './Share'
 import TileOutput from './Tile'
 
@@ -23,6 +24,8 @@ ORDER BY 2, 1`
 
 const newTile = (sql = ''): TileDef => ({ title: '', sql, chart: blank, show: 'chart', wide: false })
 const datasetTile = (d: Dataset): TileDef => ({ ...newTile(), dataset: { dataset: d.name, dimensions: [], measures: [] } })
+const textTile = (): TileDef => ({ title: '', sql: '', chart: null, show: 'text', wide: true, text: '## A heading\n\nWrite the story the charts below tell. **Bold**, *italic*, and lists:\n\n- one point\n- another' })
+const MAX_TILES = 48
 const ready = (t: TileDef) => (t.dataset ? t.dataset.dimensions.length + t.dataset.measures.length > 0 : !!t.sql.trim())
 // a field name as people read it: region_name -> Region name
 const label = (n: string) => n.charAt(0).toUpperCase() + n.slice(1).replaceAll('_', ' ')
@@ -40,10 +43,11 @@ const firstTile = (): TileDef => {
 type Edit = TileDef & { key: number; result?: Result; error?: string; running?: boolean; ms?: number; open?: boolean }
 let keys = 0
 const editing = (t: TileDef, open = false): Edit => ({ ...t, key: ++keys, open })
-const saveable = (t: TileDef): TileDef => ({
+const saveable = (t: TileDef): TileDef => t.show === 'text' ? { title: t.title, sql: '', chart: null, show: 'text', wide: t.wide, ...(t.page ? { page: t.page } : {}), text: t.text ?? '' } : ({
   title: t.title, sql: t.dataset ? '' : t.sql, show: t.show, wide: t.wide, ...(t.page ? { page: t.page } : {}),
   ...(t.dataset ? { dataset: { dataset: t.dataset.dataset, dimensions: t.dataset.dimensions, measures: t.dataset.measures } } : {}),
-  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}), ...(t.chart.map ? { map: t.chart.map } : {}) },
+  chart: t.chart && { kind: t.chart.kind, x: t.chart.x, ys: t.chart.ys, split: t.chart.split, ...(t.chart.max ? { max: t.chart.max } : {}), ...(t.chart.map ? { map: t.chart.map } : {}),
+    ...(t.chart.target !== undefined ? { target: t.chart.target } : {}), ...(t.chart.better ? { better: t.chart.better } : {}) },
   ...(t.show === 'matrix' && t.matrix ? { matrix: { rows: t.matrix.rows, cols: t.matrix.cols, values: t.matrix.values.map((v) => ({ column: v.column, agg: v.agg })) } } : {}),
 })
 // same compares drafts whatever their key order (the database keeps its own)
@@ -250,7 +254,7 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
           </select>
         </label>
         <button onClick={() => tiles.forEach(run)} disabled={!connection}>Run all</button>
-        {sqlOk && <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= 24} onChange={(e) => {
+        {sqlOk && <select value="" aria-label="Add an example tile" disabled={!connection || tiles.length >= MAX_TILES} onChange={(e) => {
           const t = editing({ ...examples[Number(e.target.value)], page: at })
           setTiles((ts) => [...ts, t])
           run(t)
@@ -280,8 +284,10 @@ export default function Editor({ reportId, style, vars, themeKey, fontsReady, on
             style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         ))}
         <div className="add-tile">
-          {mine.length > 0 && <button onClick={() => setTiles((ts) => [...ts, editing({ ...datasetTile(mine[0]), page: at }, true)])} disabled={tiles.length >= 24}>+ Tile from a dataset</button>}
-          {sqlOk && <button onClick={() => setTiles((ts) => [...ts, editing({ ...newTile(), page: at }, true)])} disabled={tiles.length >= 24}>+ SQL tile</button>}
+          {mine.length > 0 && <button onClick={() => setTiles((ts) => [...ts, editing({ ...datasetTile(mine[0]), page: at }, true)])} disabled={tiles.length >= MAX_TILES}>+ Tile from a dataset</button>}
+          {sqlOk && <button onClick={() => setTiles((ts) => [...ts, editing({ ...newTile(), page: at }, true)])} disabled={tiles.length >= MAX_TILES}>+ SQL tile</button>}
+          <button onClick={() => setTiles((ts) => [...ts, editing({ ...textTile(), page: at }, true)])} disabled={tiles.length >= MAX_TILES}
+            title="Headings and paragraphs between the charts, as a report reads">+ Text</button>
         </div>
       </div>
     </div>
@@ -364,6 +370,7 @@ function TileEditor({ tile: t, first, last, single, pages, update, move, run, re
           <button onClick={remove} disabled={single} aria-label={`Remove ${name}`} title="Remove tile">×</button>
         </span>
       </header>
+      {t.show === 'text' ? <TextEditor tile={t} name={name} update={update} /> : <>
       <details open={t.open} onToggle={(e) => update({ open: (e.target as HTMLDetailsElement).open })}>
         <summary>{t.dataset ? `Data: ${label(t.dataset.dataset)}` : 'SQL'}{t.result && !t.running && <span className="muted"> · {t.result.rows.length.toLocaleString()} rows{t.result.truncated ? ' (row limit reached)' : ''} · {Math.round(t.ms ?? 0)} ms</span>}</summary>
         {t.dataset
@@ -381,7 +388,7 @@ function TileEditor({ tile: t, first, last, single, pages, update, move, run, re
         <div className="shape">
           <Field label="Show as">
             <span className="seg">
-              {(['chart', 'table', 'matrix'] as Show[]).map((s) => (
+              {(['chart', 'table', 'matrix'] as const).map((s) => (
                 <button key={s} aria-pressed={t.show === s} onClick={() => show(s)}>{{ chart: 'Chart', table: 'Table', matrix: 'Matrix' }[s]}</button>
               ))}
             </span>
@@ -397,7 +404,23 @@ function TileEditor({ tile: t, first, last, single, pages, update, move, run, re
         : t.result
         ? <TileOutput result={t.result} spec={t.chart} show={t.show} label={name} style={style} vars={vars} themeKey={themeKey} fontsReady={fontsReady} />
         : !t.error && <div className={'state' + (t.running ? ' loading' : '')}>{t.running ? 'Running…' : t.dataset ? 'Pick fields or measures.' : 'Write a query and run it.'}</div>}
+      </>}
     </section>
+  )
+}
+
+// TextEditor edits a text tile's words beside how they will read.
+function TextEditor({ tile: t, name, update }: { tile: Edit; name: string; update: (p: Partial<Edit>) => void }) {
+  const text = t.text ?? ''
+  return (
+    <div className="text-edit">
+      <label className="field-label">
+        Text <span className="muted">(# heading, ## smaller heading, - list item, **bold**, *italic*; a blank line starts a paragraph)</span>
+        <textarea className="sql-input" aria-label={`Text of ${name}`} value={text} maxLength={20000} onChange={(e) => update({ text: e.target.value })} />
+      </label>
+      {!text.trim() && <p className="sql-error">A text tile needs some words.</p>}
+      <div className="text-preview" aria-label="Preview"><Prose text={text} /></div>
+    </div>
   )
 }
 
@@ -450,6 +473,7 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
             onChange={(e) => set({ max: e.target.value === '' ? undefined : Number(e.target.value) })} />
         </Field>
       )}
+      {targets(spec.kind) && spec.ys.length > 0 && <TargetField spec={spec} percent={result.display?.[spec.ys[0]]?.format === 'percent'} set={set} />}
       {splits(spec.kind) && (
         <Field label={splitName}>
           <select aria-label={splitName} value={spec.split} onChange={(e) => set({ split: e.target.value, ys: spec.ys.slice(0, 1) })}>
@@ -459,6 +483,24 @@ function Builder({ result, spec, setSpec }: { result: Result; spec: Spec; setSpe
         </Field>
       )}
     </div>
+  )
+}
+
+// TargetField sets a value to reach, in the value's own terms (a percent as a percent), and
+// whether higher or lower is better.
+function TargetField({ spec, percent, set }: { spec: Spec; percent: boolean; set: (p: Partial<Spec>) => void }) {
+  const scale = percent ? 100 : 1
+  return (
+    <Field label="Target">
+      <input type="number" aria-label="Target" className="num-input" step="any" placeholder="none"
+        value={spec.target === undefined ? '' : +(spec.target * scale).toPrecision(12)}
+        onChange={(e) => set({ target: e.target.value === '' ? undefined : Number(e.target.value) / scale })} />
+      {percent && <span className="muted">%</span>}
+      <select aria-label="Better when" value={spec.better ?? 'higher'} onChange={(e) => set({ better: e.target.value === 'lower' ? 'lower' : undefined })}>
+        <option value="higher">Higher is better</option>
+        <option value="lower">Lower is better</option>
+      </select>
+    </Field>
   )
 }
 

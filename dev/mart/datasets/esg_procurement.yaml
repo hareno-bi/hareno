@@ -1,0 +1,21 @@
+# ESG report demo (mock data): spending with suppliers by year, local or not, and green or not.
+name: esg_procurement
+connection: mart
+timezone: Asia/Hong_Kong
+root: spend
+tables:
+  spend:
+    table: esg.procurement_year
+dimensions:
+  fiscal_year: fiscal_year
+  category: category
+  supplier_origin: supplier_origin
+  green: green
+measures:
+  spend: {sum: spend_hkd}
+display:
+  fiscal_year: {label: Financial year}
+  category: {label: Category}
+  supplier_origin: {label: Supplier}
+  green: {label: Green purchasing}
+  spend: {label: Spend (HK$), format: integer}

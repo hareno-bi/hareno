@@ -14,6 +14,10 @@ Connection: `localhost:55433`, database `mart`, schema `mart`.
 
 Both are dev-only passwords.
 
+## ESG report demo data
+
+[`esg.sql`](esg.sql) (run at startup after `rls.sql`) adds schema `esg`: invented sustainability data for a science park of four buildings over three financial years (FY2023/24, the base year, to FY2025/26), generated deterministically. It covers utilities and the emissions they cause, waste, greenhouse gases by scope and source, staff, leadership, safety, tenants, community events, procurement, governance measures, targets and a GRI content index. The datasets `datasets/esg_*.yaml` model it; the ESG report demo dashboard is built on them. No figure in it describes a real organisation. It is separate from the sales mart, so the known-answer checks are untouched.
+
 ## Loader
 
 [`loader/`](loader/main.go) stands in for a client's load process, for testing refresh against data that changes:

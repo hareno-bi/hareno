@@ -8,8 +8,8 @@ kiban:
   realm: kiban
   login_client_id: kiban-frontend  # Kiban's public browser client
 signin:                            # as the browser reaches them, through the demo proxy (dev/demo)
-  public_url: http://${HARENO_PUBLIC_HOST}:55450
-  kiban_url: http://${HARENO_PUBLIC_HOST}:55451
+  public_url: ${HARENO_PUBLIC_URL}  # unset: http://${HARENO_PUBLIC_HOST}:55450
+  kiban_url: ${HARENO_KIBAN_URL}    # unset: http://${HARENO_PUBLIC_HOST}:55451
   demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
     - user: alice
       password: hareno-dev-password
@@ -71,6 +71,8 @@ signin:                            # as the browser reaches them, through the de
         - Another company
         - Tests the wall between companies
         - Can never see ALPHA dashboards, even if someone tries to share
+  # The Sample Report tab: this published dashboard, for anyone, signed in or not, with every row. Never in production.
+  sample_report: HSITP Sustainability Report FY2025/26 (mock data)
   demo_data:                       # the sample data table on the sign-in page. Never in production.
     connection: mart
     sql: |
@@ -91,6 +93,14 @@ compiler: http://127.0.0.1:55436
 datasets:
   - dev/mart/datasets/sales.yaml
   - dev/mart/datasets/customers.yaml
+  - dev/mart/datasets/esg_utilities.yaml
+  - dev/mart/datasets/esg_emissions.yaml
+  - dev/mart/datasets/esg_waste.yaml
+  - dev/mart/datasets/esg_people.yaml
+  - dev/mart/datasets/esg_safety.yaml
+  - dev/mart/datasets/esg_tenants.yaml
+  - dev/mart/datasets/esg_community.yaml
+  - dev/mart/datasets/esg_procurement.yaml
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

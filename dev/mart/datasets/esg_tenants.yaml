@@ -1,0 +1,45 @@
+# ESG report demo (mock data): tenant companies (invented names), when admitted, and their jobs.
+name: esg_tenants
+connection: mart
+timezone: Asia/Hong_Kong
+date: admitted
+root: tenants
+tables:
+  tenants:
+    table: esg.tenant
+    primary_key: tenant_id
+  buildings:
+    table: esg.building
+    primary_key: building_id
+joins:
+  - {name: b, to: buildings, kind: one, from_key: building_id}
+dimensions:
+  admitted: admitted
+  fiscal_year: fiscal_year
+  admitted_month: admitted.month
+  tenant: tenant
+  sector: sector
+  stage: stage
+  origin: origin
+  building: b.building
+hierarchies:
+  time: [fiscal_year, admitted_month]
+  sectors: [sector, tenant]
+measures:
+  tenants: {count: "*"}
+  total_jobs: {sum: jobs}
+  research_jobs: {sum: rnd_jobs}
+  rnd_share: {ratio: [research_jobs, total_jobs]}
+display:
+  admitted: {label: Admitted}
+  fiscal_year: {label: Financial year}
+  admitted_month: {label: Month admitted}
+  tenant: {label: Tenant}
+  sector: {label: Sector}
+  stage: {label: Stage}
+  origin: {label: Origin}
+  building: {label: Building}
+  tenants: {label: Tenants admitted, format: integer}
+  total_jobs: {label: Jobs, format: integer}
+  research_jobs: {label: R&D jobs, format: integer}
+  rnd_share: {label: R&D share of jobs, format: percent}
