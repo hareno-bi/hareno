@@ -4,12 +4,13 @@ import Matrix from './s3/Matrix'
 import { styles, useTheme, type Pref } from './s3/theme'
 import Editor from './sql/Editor'
 import { Embed } from './sql/Embed'
-import { PrintView, ReportView, Reports } from './sql/Reports'
+import { PrintView, ReportView, Reports, SAMPLE } from './sql/Reports'
 import './s3/s3.css'
 
-const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype' } as const
+const pages = { sql: 'Dashboard editor', reports: 'Dashboards', charts: 'Chart samples', matrix: 'Matrix prototype', sample: 'Sample Report' } as const
 type Page = keyof typeof pages | 'report' | 'embed' | 'print'
-// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix,
+// #/sql, #/sql/<report id>, #/reports, #/report/<report id>, #/charts, #/matrix, #/sample (the
+// sample report: no sign-in needed),
 // #/embed/<report id>?<options>: a published dashboard alone, for a frame in another site (Embed), and
 // #/print/<report id>?<options>: every page of one, laid out for paper (PrintView)
 const fromHash = (): { page: Page; id?: string; params: URLSearchParams } => {
@@ -20,34 +21,22 @@ const fromHash = (): { page: Page; id?: string; params: URLSearchParams } => {
 }
 
 // user: undefined while asking, null when signed out (or no API behind a static demo).
-// demo: test accounts, listed only when the API's configuration has them (dev and demo stacks);
-// links: dashboards in the menu, by title (the same).
-type Link = { label: string; title: string }
+// demo: test accounts, listed only when the API's configuration has them (dev and demo stacks).
 type Account = { user: string; password: string; remarks: string[]; company: string; via: string; sql: boolean; rows: string; shareData: boolean; export: boolean; datasets: boolean }
 function useUser() {
   const [user, setUser] = useState<string | null | undefined>(undefined)
   const [demo, setDemo] = useState<Account[]>([])
-  const [links, setLinks] = useState<Link[]>([])
   useEffect(() => {
     fetch('/api/me').then((r) => (r.ok ? r.json() : null)).then((b) => {
       setUser(b?.name ?? null)
       setDemo(b?.demo ?? [])
-      setLinks(b?.links ?? [])
     }, () => setUser(null))
   }, [])
   const signOut = async () => {
     const r = await fetch('/auth/logout', { method: 'POST' })
     location.href = (await r.json()).redirect
   }
-  return { user, setUser, demo, links, signOut }
-}
-
-// openLink shows the published dashboard with a link's title, among those the viewer may see.
-async function openLink(l: Link) {
-  const r = await fetch('/api/reports')
-  const found = r.ok ? ((await r.json()).reports as { id: string; title: string; published: number | null }[]).find((x) => x.title === l.title && x.published) : undefined
-  if (found) location.hash = `#/report/${found.id}`
-  else alert(r.status === 401 ? 'Sign in first.' : `“${l.title}” is not published, or not shared with you.`)
+  return { user, setUser, demo, signOut }
 }
 
 export default function App() {
@@ -57,7 +46,7 @@ export default function App() {
   const theme = params.get('theme')
   const { pref, setPref, style, setStyleId, fontsReady, vars, key } = useTheme(embed ? {
     pref: theme === 'light' || theme === 'dark' ? theme : undefined, style: params.get('style') ?? undefined } : page === 'print' ? { pref: 'light' } : {})
-  const { user, setUser, demo, links, signOut } = useUser()
+  const { user, setUser, demo, signOut } = useUser()
   const signedOut = useCallback(() => setUser(null), [setUser])
   useEffect(() => {
     const on = () => {
@@ -82,7 +71,6 @@ export default function App() {
           {(Object.keys(pages) as (keyof typeof pages)[]).map((p) => (
             <a key={p} href={`#/${p}`} aria-current={p === page || (p === 'reports' && page === 'report') ? 'page' : undefined}>{pages[p]}</a>
           ))}
-          {user && links.map((l) => <a key={l.title} href="#/reports" onClick={(e) => { e.preventDefault(); openLink(l) }}>{l.label}</a>)}
         </nav>
         <label className="theme">
           Style{' '}
@@ -104,7 +92,9 @@ export default function App() {
         <main>
           {page === 'charts' && <Charts style={style} vars={vars} themeKey={key} fontsReady={fontsReady} />}
           {page === 'matrix' && <Matrix />}
-          {(page === 'sql' || page === 'reports' || page === 'report' || page === 'print') && (user === undefined ? null
+          {page === 'sample' && <ReportView key={nav} id={SAMPLE} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+          {page === 'print' && id === SAMPLE && <PrintView key={nav} id={SAMPLE} params={params} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}
+          {(page === 'sql' || page === 'reports' || page === 'report' || (page === 'print' && id !== SAMPLE)) && (user === undefined ? null
             : user === null ? <SignIn demo={demo} />
             : <>
               {page === 'sql' && <Editor key={nav} reportId={id} style={style} vars={vars} themeKey={key} fontsReady={fontsReady} onSignedOut={signedOut} />}

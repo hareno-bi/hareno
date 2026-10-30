@@ -71,9 +71,8 @@ signin:                            # as the browser reaches them, through the de
         - Another company
         - Tests the wall between companies
         - Can never see ALPHA dashboards, even if someone tries to share
-  demo_links:                      # dashboards in the menu, by title (the ESG report demo). Never in production.
-    - label: ESG report
-      title: HSITP Sustainability Report FY2025/26 (mock data)
+  # The Sample Report tab: this published dashboard, for anyone, signed in or not, with every row. Never in production.
+  sample_report: HSITP Sustainability Report FY2025/26 (mock data)
   demo_data:                       # the sample data table on the sign-in page. Never in production.
     connection: mart
     sql: |

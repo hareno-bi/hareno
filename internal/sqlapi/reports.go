@@ -474,31 +474,45 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	ctx := r.Context()
-	var req struct {
-		Filters Filters          `json:"filters"`
-		Dates   *Dates           `json:"dates"`
-		Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
-		Page    int              `json:"page"`  // the page shown: only its tiles run
-	}
-	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
-		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
+	req, body, ok := h.runRequest(w, r, rep)
+	if !ok {
 		return
 	}
-	if rep.Published == nil {
-		fail(w, http.StatusNotFound, "this report has not been published")
-		return
-	}
-	var body Draft
-	if err := h.DB.QueryRow(ctx, `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
-		fail(w, http.StatusInternalServerError, "could not read the report")
-		return
-	}
-	scope, data, err := h.scope(ctx, bearer, sub, rep, rt)
+	scope, data, err := h.scope(r.Context(), bearer, sub, rep, rt)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "authorization unavailable")
 		return
 	}
+	h.run(w, r.Context(), sub, rep, body, scope, data, req)
+}
+
+// runReq is what a run of a published dashboard asks for.
+type runReq struct {
+	Filters Filters          `json:"filters"`
+	Dates   *Dates           `json:"dates"`
+	Drill   map[int][]string `json:"drill"` // by tile: the values clicked, top down; they narrow the whole dashboard (drill.go)
+	Page    int              `json:"page"`  // the page shown: only its tiles run
+}
+
+// runRequest reads a run request and the report's published revision; on failure it has answered.
+func (h *Handler) runRequest(w http.ResponseWriter, r *http.Request, rep reportRow) (req runReq, body Draft, ok bool) {
+	if !decode(w, r, &req) || !req.Filters.valid() || !req.Dates.valid() || !validDrill(req.Drill) {
+		fail(w, http.StatusBadRequest, `expected {"filters": {"<column>": ["<value>", ...]}, "dates": {"last": "7d|30d|3m|12m|year|lastyear"} or {"from": "YYYY-MM-DD", "to": "YYYY-MM-DD"}, "drill": {"<tile>": ["<value>", ...]}}`)
+		return req, body, false
+	}
+	if rep.Published == nil {
+		fail(w, http.StatusNotFound, "this report has not been published")
+		return req, body, false
+	}
+	if err := h.DB.QueryRow(r.Context(), `SELECT body FROM report_revision WHERE report_id = $1 AND revision = $2`, rep.ID, *rep.Published).Scan(&body); err != nil {
+		fail(w, http.StatusInternalServerError, "could not read the report")
+		return req, body, false
+	}
+	return req, body, true
+}
+
+// run runs the page asked for of a published dashboard under scope, for sub, and answers.
+func (h *Handler) run(w http.ResponseWriter, ctx context.Context, sub string, rep reportRow, body Draft, scope sqlexec.Scope, data string, req runReq) {
 	conn, ok := h.Connections[rep.Connection]
 	if !ok {
 		fail(w, http.StatusNotFound, "the report's connection has been removed")

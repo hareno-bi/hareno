@@ -44,8 +44,9 @@ type config struct {
 		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
 		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
 		DemoAccounts []signin.Account `yaml:"demo_accounts"`
-		// Dashboards in the menu, by title. Dev and demo stacks only.
-		DemoLinks []signin.Link `yaml:"demo_links"`
+		// The title of a published dashboard anyone may view without signing in, with every row
+		// (the Sample Report tab). Dev and demo stacks only.
+		SampleReport string `yaml:"sample_report"`
 		// Sample data shown on the sign-in page: a fixed query, run with every row. Dev and demo stacks only.
 		DemoData sqlapi.Demo `yaml:"demo_data"`
 	} `yaml:"signin"`
@@ -108,6 +109,10 @@ func main() {
 		if h.Demo.SQL != "" {
 			mux.HandleFunc("GET /api/demo-data", h.DemoData)
 		}
+		if h.SampleReport != "" {
+			mux.HandleFunc("GET /api/sample-report", h.SampleReportView)
+			mux.HandleFunc("POST /api/sample-report/run", h.SampleReportRun)
+		}
 		mux.HandleFunc("GET /auth/login", si.Login)
 		mux.HandleFunc("GET /auth/callback", si.Callback)
 		mux.HandleFunc("POST /auth/logout", si.LogoutHandler)
@@ -164,7 +169,6 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		Logout: cfg.Signin.KibanURL + oidc + "/logout",
 		Home:   cfg.Signin.PublicURL + "/",
 		Demo:   cfg.Signin.DemoAccounts,
-		Links:  cfg.Signin.DemoLinks,
 	}
 	appDB, err := pgxpool.New(ctx, cfg.AppDB)
 	if err != nil {
@@ -174,14 +178,15 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		return nil, nil, err
 	}
 	h := &sqlapi.Handler{
-		DB:          appDB,
-		Grants:      k,
-		People:      authz.Directory{Gateway: cfg.Kiban.Gateway},
-		Members:     k,
-		Demo:        cfg.Signin.DemoData,
-		Authz:       &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
-		Connections: map[string]sqlapi.Connection{},
-		Log:         slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
+		DB:           appDB,
+		Grants:       k,
+		People:       authz.Directory{Gateway: cfg.Kiban.Gateway},
+		Members:      k,
+		Demo:         cfg.Signin.DemoData,
+		SampleReport: cfg.Signin.SampleReport,
+		Authz:        &authz.Authz{K: k, Module: "hareno", Feature: "hareno.use", AllowTTL: 30 * time.Second, DenyTTL: 5 * time.Second},
+		Connections:  map[string]sqlapi.Connection{},
+		Log:          slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("audit", "sql"),
 	}
 	for name, c := range cfg.Connections {
 		if c.Mode != "database-enforced" {

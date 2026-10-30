@@ -50,7 +50,7 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may build dashboards on, and those they may query with SQL. `GET /api/datasets` lists the datasets they may build from (`dev/mart/datasets`, listed under `datasets:` in `dev/hareno.yaml`).
 
-The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). The menu can link to published dashboards by title (`signin.demo_links`, e.g. "ESG report"); each opens for those it is shared with. None of these belongs in a production configuration.
+The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). The **Sample Report** tab shows one published dashboard, chosen by title (`signin.sample_report`, here the ESG report demo), to anyone, signed in or not, with every row (`GET /api/sample-report`, `POST /api/sample-report/run`; `internal/sqlapi/sample.go`); it is read only, with no downloads. None of these belongs in a production configuration.
 
 Saved reports are dashboards: a title and tiles, each its own SQL query shown as a chart or a table. They are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
 - **Changing a report** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` or `dataset_user` on its connection. Adding or changing SQL needs `sql_user`.

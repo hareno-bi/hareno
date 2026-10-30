@@ -66,7 +66,7 @@ type TileRun = Partial<Result> & { ranAt?: string; asOf?: string; stale?: boolea
 // Drill: a tile drilling down a hierarchy (server: drill.go): its own level and those below, and
 // how far down it is (levels[at] is shown)
 type Drill = { levels: string[]; at: number }
-type Run = { tiles: (TileRun | null)[]; data: 'viewer' | 'sharer'; options: Record<string, string[]>; dates: boolean }
+type Run = { tiles: (TileRun | null)[]; data: 'viewer' | 'sharer' | 'sample'; options: Record<string, string[]>; dates: boolean }
 // Filters: column -> the one value kept. They narrow every tile with that column (server: filters.go).
 export type Filters = Record<string, string>
 // A date range: a span counted back from today, or from one day to another, both included. It
@@ -85,6 +85,10 @@ const startQuery = (filters: Filters, dates: Dates | null) => new URLSearchParam
   ...Object.entries(filters).map(([c, v]) => [`filter.${c}`, v]),
   ...(dates ? [['dates', 'last' in dates ? dates.last : `${dates.from}..${dates.to}`]] : []),
 ]).toString()
+// SAMPLE is the id of the sample report: one published dashboard anyone may view, signed in or
+// not, with every row (dev and demo stacks; server: sample.go). Read only: no edits or downloads.
+export const SAMPLE = 'sample'
+const api = (id: string) => (id === SAMPLE ? '/api/sample-report' : `/api/reports/${id}`)
 const lasts = { '7d': 'Last 7 days', '30d': 'Last 30 days', '3m': 'Last 3 months', '12m': 'Last 12 months', year: 'This year', lastyear: 'Last year' } as const
 
 const EVERY = 5000 // dashboards refresh every five seconds while visible (ARCHITECTURE-PLAN §8.1)
@@ -128,7 +132,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
     const sent = current.current, sentDates = currentDates.current, sentDrill = currentDrill.current, sentPage = currentPage.current
     try {
       const f = Object.fromEntries(Object.entries(sent).map(([c, v]) => [c, [v]]))
-      const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill, page: sentPage }) })
+      const r = await fetch(`${api(id)}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates: sentDates, drill: sentDrill, page: sentPage }) })
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (r.status === 404) return setError(body.error) // unshared or deleted: stop showing it
@@ -178,7 +182,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
   }
 
   useEffect(() => {
-    fetch(`/api/reports/${id}`).then(async (r) => {
+    fetch(api(id)).then(async (r) => {
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (!r.ok) return setError(body.error)
@@ -219,7 +223,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
         ? title && <div className="toolbar"><h2>{pub.body.title}</h2></div>
         : <div className="toolbar">
           <h2>{pub.body.title}</h2>
-          <span className="muted">Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleString()}</span>
+          <span className="muted">{id === SAMPLE ? 'Sample report: open to everyone, no sign-in needed.' : `Revision ${pub.revision}, published ${new Date(pub.publishedAt).toLocaleString()}`}</span>
           {report.canEdit && <Share id={id} />}
           {report.canEdit && <a href={`#/sql/${id}`}>Edit</a>}
           <a href={`#/print/${id}` + (startQuery(filters, dates) ? `?${startQuery(filters, dates)}` : '')} title="Every page, laid out for paper: print it or save it as a PDF">Print or PDF</a>
@@ -229,7 +233,8 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
           ? <span className="stale">Could not refresh: {failed} Showing the data from {checked ? checked.toLocaleTimeString() : 'before'}; trying again every 5 seconds.</span>
           : <>Live: checks for new data every 5 seconds{checked && `, last at ${checked.toLocaleTimeString()}`}.</>}
         {' '}
-        {run?.data === 'sharer'
+        {run?.data === 'sample' ? 'Everyone sees all of this sample report\'s data.'
+          : run?.data === 'sharer'
           ? `You are seeing the data of the person who shared this dashboard with you.${report.canExport ? ' Downloads hold your own rows only.' : ''}`
           : 'You are seeing your own data: rows outside your access are left out.'}
       </p>
@@ -289,7 +294,7 @@ export function ReportView({ id, style, vars, themeKey, fontsReady, onSignedOut,
                     {res.asOf ? `Data as of ${when(res.asOf)}` : `Data as of ${time(res.ranAt!)}`}
                     {res.asOf && ` · queried ${time(res.ranAt!)}`}
                   </span>
-                  {report.canExport
+                  {id === SAMPLE ? null : report.canExport
                     ? <a href={csv} download
                         title={(t.show === 'matrix' ? 'The rows the matrix totals. ' : '') + (run?.data === 'sharer' ? 'The file holds your own rows, not those shown here' : 'Your rows, fetched fresh')}>Download CSV</a>
                     : <button disabled title="You may not download data from this source">Download CSV</button>}
@@ -326,7 +331,7 @@ export function PrintView({ id, params, style, vars, themeKey, fontsReady, onSig
   useEffect(() => {
     let live = true
     const load = async () => {
-      const r = await fetch(`/api/reports/${id}`)
+      const r = await fetch(api(id))
       if (r.status === 401) return onSignedOut()
       const body = await r.json()
       if (!r.ok || !body.published) return setError(body.error ?? 'This dashboard has not been published yet.')
@@ -335,7 +340,7 @@ export function PrintView({ id, params, style, vars, themeKey, fontsReady, onSig
       setPub(p)
       const f = Object.fromEntries(Object.entries(filters).map(([c, v]) => [c, [v]]))
       for (let k = 0; k < Math.max(p.body.pages?.length ?? 0, 1); k++) {
-        const r = await fetch(`/api/reports/${id}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates, page: k }) })
+        const r = await fetch(`${api(id)}/run`, { method: 'POST', headers: json, body: JSON.stringify({ filters: f, dates, page: k }) })
         const b = await r.json()
         if (!r.ok) return setError(b.error ?? `HTTP ${r.status}`)
         if (live) setRuns((rs) => { const out = [...rs]; out[k] = b; return out })
@@ -365,7 +370,7 @@ export function PrintView({ id, params, style, vars, themeKey, fontsReady, onSig
         <h1>{pub.body.title}</h1>
         <p className="muted">
           {narrowed.length ? `${narrowed.join(' · ')}. ` : ''}Revision {pub.revision}, published {new Date(pub.publishedAt).toLocaleDateString()};
-          printed {new Date().toLocaleString()}. {runs[0]?.data === 'sharer' ? 'Shows the data of the person who shared it.' : 'Shows the data you may see.'}
+          printed {new Date().toLocaleString()}. {runs[0]?.data === 'sample' ? '' : runs[0]?.data === 'sharer' ? 'Shows the data of the person who shared it.' : 'Shows the data you may see.'}
         </p>
       </header>
       {Array.from({ length: n }, (_, k) => (
