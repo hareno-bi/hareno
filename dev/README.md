@@ -102,6 +102,22 @@ docker compose --profile demo up -d demo
 - Keycloak marks its cookies Secure, which browsers drop on plain HTTP, so the proxy removes the flag.
 - **Dev only.** There is no TLS, so passwords cross the network unencrypted. Use only the seeded dev accounts.
 
+### Under a domain name, with HTTPS
+
+The demo host already runs a Traefik (another project's) on ports 80 and 443, with Let's Encrypt certificates. A small proxy joins its network and passes the domain's requests to the demo on `:55450` ([`dev/demo/edge.compose.yaml`](demo/edge.compose.yaml)). Kiban's login pages are then served at the same address, under `/auth/realms/kiban/` and `/resources/`, so signing in is encrypted too:
+
+```sh
+# first: an A record for the domain pointing at the host (DNS only, so Let's Encrypt can reach it)
+HARENO_PUBLIC_ORIGIN="http://$HARENO_PUBLIC_HOST:55450,https://hareno.bsoltest.com" dev/kiban/up.sh
+HARENO_PUBLIC_URL=https://hareno.bsoltest.com HARENO_KIBAN_URL=https://hareno.bsoltest.com \
+  go run ./cmd/api -addr 127.0.0.1:55453 -config dev/hareno.yaml &
+HARENO_DOMAIN=hareno.bsoltest.com docker compose -f dev/demo/edge.compose.yaml up -d
+```
+
+- The Sample Report is at `https://hareno.bsoltest.com/#/sample`.
+- With the API on the domain, signing in from `http://$HARENO_PUBLIC_HOST:55450` also goes through the domain.
+- Toward Kiban, the proxy drops the `X-Forwarded-*` headers of the proxies in front: Kiban builds its own addresses, which the proxy rewrites.
+
 ## Embedding
 
 A published dashboard can be shown inside another site, such as a client's report portal: the site puts `https://<hareno>/#/embed/<dashboard id>` in an `<iframe>`.

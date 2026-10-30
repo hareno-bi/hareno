@@ -138,12 +138,12 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 	if err != nil {
 		return nil, nil, err
 	}
-	text := os.Expand(string(b), func(k string) string {
-		if v := os.Getenv(k); v != "" || k != "HARENO_PUBLIC_HOST" {
-			return v
-		}
-		return "localhost"
-	})
+	// Unset, HARENO_PUBLIC_HOST is localhost, and Hareno and Kiban's login pages are on its demo ports;
+	// HARENO_PUBLIC_URL and HARENO_KIBAN_URL set them outright (e.g. https://hareno.example.com).
+	host := cmp.Or(os.Getenv("HARENO_PUBLIC_HOST"), "localhost")
+	defaults := map[string]string{"HARENO_PUBLIC_HOST": host,
+		"HARENO_PUBLIC_URL": "http://" + host + ":55450", "HARENO_KIBAN_URL": "http://" + host + ":55451"}
+	text := os.Expand(string(b), func(k string) string { return cmp.Or(os.Getenv(k), defaults[k]) })
 	var cfg config
 	dec := yaml.NewDecoder(strings.NewReader(text))
 	dec.KnownFields(true)

@@ -8,8 +8,8 @@ kiban:
   realm: kiban
   login_client_id: kiban-frontend  # Kiban's public browser client
 signin:                            # as the browser reaches them, through the demo proxy (dev/demo)
-  public_url: http://${HARENO_PUBLIC_HOST}:55450
-  kiban_url: http://${HARENO_PUBLIC_HOST}:55451
+  public_url: ${HARENO_PUBLIC_URL}  # unset: http://${HARENO_PUBLIC_HOST}:55450
+  kiban_url: ${HARENO_KIBAN_URL}    # unset: http://${HARENO_PUBLIC_HOST}:55451
   demo_accounts:                   # shown on the sign-in page; seeded by dev/kiban/seed.sh. Never in production.
     - user: alice
       password: hareno-dev-password

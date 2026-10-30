@@ -1,0 +1,31 @@
+# The public demo under a domain name with HTTPS, through the Traefik already serving ports 80 and
+# 443 on the demo host (its network nexus-network, Let's Encrypt certificates). The domain's DNS
+# must point at the host before the certificate can be issued.
+#
+#   HARENO_DOMAIN=hareno.bsoltest.com docker compose -f dev/demo/edge.compose.yaml up -d
+#
+# The API then needs HARENO_PUBLIC_URL and HARENO_KIBAN_URL set to https://<domain>, and Kiban the
+# origin registered (dev/kiban/up.sh, HARENO_PUBLIC_ORIGIN). See dev/README.md, "Public demo".
+name: hareno-edge
+services:
+  demo-edge:
+    image: nginx:1.29.1-alpine
+    restart: unless-stopped
+    extra_hosts: ["host.docker.internal:host-gateway"]  # the demo proxy listens on the host
+    networks: [nexus]
+    volumes:
+      - ./edge.conf:/etc/nginx/conf.d/default.conf:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.hareno-demo.rule: Host(`${HARENO_DOMAIN:?set HARENO_DOMAIN}`)
+      traefik.http.routers.hareno-demo.entrypoints: websecure
+      traefik.http.routers.hareno-demo.tls.certresolver: letsencrypt
+      traefik.http.routers.hareno-demo-http.rule: Host(`${HARENO_DOMAIN:?set HARENO_DOMAIN}`)
+      traefik.http.routers.hareno-demo-http.entrypoints: web
+      traefik.http.routers.hareno-demo-http.middlewares: hareno-demo-https
+      traefik.http.middlewares.hareno-demo-https.redirectscheme.scheme: https
+      traefik.http.services.hareno-demo.loadbalancer.server.port: "80"
+networks:
+  nexus:
+    name: nexus-network
+    external: true

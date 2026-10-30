@@ -1,6 +1,12 @@
 # Demo of the built frontend (web/dist) with the API and Kiban login behind it. Runs on the host
 # network so it reaches the API (127.0.0.1:55453) and Kiban's gateway (127.0.0.1:55440), which
 # listen on loopback only. ${HARENO_PUBLIC_HOST} is the address browsers use.
+# The scheme browsers use: https behind the TLS proxy in front (Traefik, the demo-edge service), else this one's.
+map $http_x_forwarded_proto $public_scheme {
+    default $scheme;
+    https   https;
+}
+
 server {
     listen 55450;
     root /usr/share/nginx/html;
@@ -13,13 +19,29 @@ server {
     location / { try_files $uri /index.html; }
     location ~ ^/api/reports/[^/]+/tiles/[0-9]+/csv$ {  # downloads: streamed, queries up to 5 minutes
         proxy_pass http://127.0.0.1:55453;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $public_scheme;
         proxy_read_timeout 300s;
         proxy_buffering off;
     }
+    # Kiban's login pages at Hareno's own address (as on :55451 below, rewritten to the address the
+    # browser used), for a public name with TLS in front: one origin, and Keycloak's Secure cookies
+    # kept. Before /auth/ below: regex locations match in order.
+    location ~ ^/(auth/realms/kiban/|resources/) {
+        proxy_pass http://127.0.0.1:55440;
+        proxy_set_header Host localhost:55440;
+        proxy_set_header Accept-Encoding "";
+        # Kiban must build its own addresses (rewritten below), not mix in those of the proxies in front
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header X-Forwarded-Port "";
+        proxy_set_header X-Forwarded-Proto "";
+        proxy_set_header Forwarded "";
+        proxy_redirect http://localhost:55440/ $public_scheme://$http_host/;
+        sub_filter 'http://localhost:55440/' '$public_scheme://$http_host/';
+        sub_filter_once off;
+    }
     location ~ ^/(api|auth)/ {  # regex locations match in order: downloads first
         proxy_pass http://127.0.0.1:55453;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $public_scheme;
         proxy_read_timeout 60s;
     }
 }
