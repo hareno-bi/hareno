@@ -20,6 +20,7 @@ services:
       traefik.http.routers.hareno-demo.rule: Host(`${HARENO_DOMAIN:?set HARENO_DOMAIN}`)
       traefik.http.routers.hareno-demo.entrypoints: websecure
       traefik.http.routers.hareno-demo.tls.certresolver: letsencrypt
+      traefik.http.routers.hareno-demo.tls.domains[0].main: ${HARENO_DOMAIN:?set HARENO_DOMAIN}
       traefik.http.routers.hareno-demo-http.rule: Host(`${HARENO_DOMAIN:?set HARENO_DOMAIN}`)
       traefik.http.routers.hareno-demo-http.entrypoints: web
       traefik.http.routers.hareno-demo-http.middlewares: hareno-demo-https
