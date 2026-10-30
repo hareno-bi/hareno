@@ -29,9 +29,13 @@ export const kinds = {
 } as const
 export type Kind = keyof typeof kinds
 // max: a gauge's maximum (unset: 100% for a percent, else a round number above the value);
-// map: a map's shapes, 'world' (unset) or a country's code for its states or provinces
-export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number; map?: string }
+// map: a map's shapes, 'world' (unset) or a country's code for its states or provinces;
+// target: a value to reach (a KPI card says whether it is met, columns and lines draw it across),
+// and whether higher or lower values are better (by default higher)
+export type Spec = { kind: Kind; x: string; ys: string[]; split: string; max?: number; map?: string; target?: number; better?: 'higher' | 'lower' }
 export const maps = (k: Kind) => k === 'map' || k === 'pointmap'
+// the kinds that show a target
+export const targets = (k: Kind) => ['kpi', 'bar', 'hbar', 'stacked', 'hstacked', 'line', 'area', 'stackedArea', 'combo'].includes(k)
 // one value: KPI cards and gauges show one; pies, funnels, treemaps, sunbursts, heat maps, calendars
 // and waterfalls share one out; flows (Sankey, chord) are sized by one; histograms, box plots and
 // beeswarms show how one spreads over the rows
@@ -82,6 +86,8 @@ export function fit(s: Spec, r: Result): Spec {
       : flows(s.kind) ? (r.columns.find((c, i) => c !== x && !isNum(r, i)) ?? '') : '',
     ...(s.kind === 'gauge' && s.max ? { max: s.max } : {}),
     ...(maps(s.kind) && s.map && s.map !== 'world' ? { map: s.map } : {}),
+    ...(targets(s.kind) && s.target !== undefined ? { target: s.target } : {}),
+    ...(targets(s.kind) && s.better === 'lower' ? { better: s.better } : {}),
   }
 }
 
@@ -608,7 +614,15 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
   const lines = k === 'line' || k === 'area' || k === 'stackedArea'
   const totals = cats.map((c) => names.reduce((t, n) => t + Math.abs(series.get(n)!.get(c) ?? 0), 0))
   const catAxis = { type: 'category', data: cats, boundaryGap: !lines, inverse: horizontal }
-  const valAxis = pct ? { type: 'value', max: 1, axisLabel: { formatter: fmtPct } } : { type: 'value', axisLabel }
+  // a target: a dashed line across the (first) values, the value axis stretched to reach it
+  const target = pct ? undefined : s.target
+  const top = Math.max(0, ...(stack ? totals : (k === 'combo' ? names.slice(0, 1) : names).flatMap((n) => [...series.get(n)!.values()]))) // a combo's lines have their own axis
+  const valAxis = pct ? { type: 'value', max: 1, axisLabel: { formatter: fmtPct } }
+    : { type: 'value', axisLabel, ...(target !== undefined && target > top ? { max: roundUp(target * 1.05) } : {}) }
+  const mark = target === undefined ? {} : { markLine: { silent: true, symbol: 'none', animation: false,
+    lineStyle: { type: 'dashed', width: 1.5, color: token('--text') },
+    label: { formatter: `Target ${number(d, s.ys[0])(target)}`, position: 'insideEndTop', color: token('--text') },
+    data: [horizontal ? { xAxis: target } : { yAxis: target }] } }
   // a combo's first value is columns on the left axis, the others lines on the right, each in its format
   const combo = k === 'combo' && names.length > 1
   const comboAxes = [valAxis, { type: 'value', splitLine: { show: false }, axisLabel: { formatter: d?.[s.ys[1]]?.format === 'percent' ? fmtPct : fmtAxis } }]
@@ -623,10 +637,11 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
       const tooltip = pct ? { valueFormatter: (v: number) => (typeof v === 'number' ? fmtPct(v) : v) } : fmt(si >= 0 ? s.ys[0] : s.ys[i]) // each Y in its own format
       // one point makes no line: show it as a dot, whatever the style
       const dot = cats.length === 1 ? { symbol: 'circle', symbolSize: 8, showSymbol: true } : {}
-      if (k === 'line' || (combo && i > 0)) return { ...line(i), ...dot, areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
-      if (lines) return { ...line(i), ...dot, areaStyle: stack ? { opacity: 0.85 } : line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true, stack }
+      const marked = i === 0 ? mark : {}
+      if (k === 'line' || (combo && i > 0)) return { ...line(i), ...dot, ...marked, areaStyle: undefined, name: n, data, tooltip, connectNulls: true, yAxisIndex: combo ? 1 : 0 }
+      if (lines) return { ...line(i), ...dot, ...marked, areaStyle: stack ? { opacity: 0.85 } : line(i).areaStyle ?? { opacity: 0.25 }, name: n, data, tooltip, connectNulls: true, stack }
       return {
-        ...bar(i), name: n, data, tooltip, stack,
+        ...bar(i), ...marked, name: n, data, tooltip, stack,
         itemStyle: { ...bar(i).itemStyle, borderRadius: stack && i < names.length - 1 ? 0 : horizontal ? [0, rad, rad, 0] : [rad, rad, 0, 0] },
       }
     }),
@@ -635,8 +650,9 @@ export function chartOption(r: Result, s: Spec, style: Style, vars: Tokens): ECh
 
 
 // A dashboard (a saved report): tiles, each a query and how it is shown, half or full width.
-export type Show = 'chart' | 'table' | 'matrix'
-export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean; page?: number; matrix?: MatrixSpec; dataset?: Pick } // page: from 0
+// A text tile (show 'text') has words instead of a query: headings and paragraphs between the charts (Prose).
+export type Show = 'chart' | 'table' | 'matrix' | 'text'
+export type TileDef = { title: string; sql: string; chart: Spec | null; show: Show; wide: boolean; page?: number; matrix?: MatrixSpec; dataset?: Pick; text?: string } // page: from 0
 
 // A dataset tile's picks: the dataset, the fields to group by and the measures (server: datasets.go).
 // Saved instead of SQL; the server writes the query each time the tile runs.

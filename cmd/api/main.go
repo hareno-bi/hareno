@@ -44,6 +44,8 @@ type config struct {
 		KibanURL  string `yaml:"kiban_url"`  // Kiban's login, e.g. http://localhost:55451
 		// Test accounts listed on the sign-in page with their passwords. Dev and demo stacks only.
 		DemoAccounts []signin.Account `yaml:"demo_accounts"`
+		// Dashboards in the menu, by title. Dev and demo stacks only.
+		DemoLinks []signin.Link `yaml:"demo_links"`
 		// Sample data shown on the sign-in page: a fixed query, run with every row. Dev and demo stacks only.
 		DemoData sqlapi.Demo `yaml:"demo_data"`
 	} `yaml:"signin"`
@@ -162,6 +164,7 @@ func load(ctx context.Context, path string) (*sqlapi.Handler, *signin.Signin, er
 		Logout: cfg.Signin.KibanURL + oidc + "/logout",
 		Home:   cfg.Signin.PublicURL + "/",
 		Demo:   cfg.Signin.DemoAccounts,
+		Links:  cfg.Signin.DemoLinks,
 	}
 	appDB, err := pgxpool.New(ctx, cfg.AppDB)
 	if err != nil {

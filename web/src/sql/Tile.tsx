@@ -11,17 +11,18 @@ import Table from './Table'
 // the value of a clicked bar, point or slice (not on scatter charts, whose X is a number), or a
 // clicked matrix row or column value.
 // picks: charts whose X values can be clicked (to filter by them, or drill into them)
-export const picks = (k: Spec['kind']) => !['scatter', 'bubble', 'beeswarm', 'gauge', 'histogram', 'waterfall', 'calendar', 'sankey', 'chord', 'sunburst', 'radar'].includes(k)
+export const picks = (k: Spec['kind']) => !['scatter', 'bubble', 'beeswarm', 'kpi', 'gauge', 'histogram', 'waterfall', 'calendar', 'sankey', 'chord', 'sunburst', 'radar'].includes(k)
 
-export default function TileOutput({ result, spec, show, matrix, label, style, vars, themeKey, fontsReady, onPick }: {
+// whole: a table shows every row (for paper)
+export default function TileOutput({ result, spec, show, matrix, label, style, vars, themeKey, fontsReady, onPick, whole }: {
   result: Result; spec: Spec | null; show: Show; matrix?: MatrixSpec; label: string; style: Style; vars: Tokens; themeKey: string; fontsReady: boolean
-  onPick?: (column: string, value: string) => void
+  onPick?: (column: string, value: string) => void; whole?: boolean
 }) {
   const s = fit(spec?.kind ? spec : blank, result)
   const mapReady = useMap(maps(s.kind) ? s.map ?? 'world' : undefined)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- options read colour tokens, which follow themeKey
   const option = useMemo(() => (show === 'chart' && (s.x || s.kind === 'gauge' || s.kind === 'histogram') && s.ys.length && s.kind !== 'kpi' && (mapReady || !maps(s.kind)) ? chartOption(result, s, style, vars) : null), [result, JSON.stringify(s), show, themeKey, mapReady])
-  if (show === 'table') return <Table result={result} />
+  if (show === 'table') return <Table result={result} whole={whole} />
   if (show === 'matrix') return matrix ? <MatrixTable result={result} spec={matrix} onPick={onPick} /> : null
   // no rows (e.g. filtered to nothing): say so, not that columns are missing (with no rows, none look numeric)
   if (show === 'chart' && result.rows.length === 0) return <div className="state empty">No data for the current filters.</div>
@@ -33,19 +34,24 @@ export default function TileOutput({ result, spec, show, matrix, label, style, v
 }
 
 // Kpi shows one value large: the latest row's, with its change from the row before (a percent
-// value changes by points, anything else by a percentage of the earlier value).
+// value changes by points, anything else by a percentage of the earlier value). With a target,
+// it says whether the value meets it; with "lower is better", a fall shows as good.
 function Kpi({ result, spec }: { result: Result; spec: Spec }) {
   const { value, prior, priorAt } = latest(result, spec)
   const d = result.display, y = spec.ys[0]
   const points = d?.[y]?.format === 'percent'
   const change = value === null || prior === null ? null : points ? value - prior : prior === 0 ? null : (value - prior) / Math.abs(prior)
   const flat = change !== null && Math.abs(change) < 0.0005
+  const lower = spec.better === 'lower'
+  const met = value === null || spec.target === undefined ? null : lower ? value <= spec.target : value >= spec.target
+  const target = spec.target === undefined ? '' : `target ${lower ? 'at most' : 'at least'} ${number(d, y)(spec.target)}`
   return (
-    <div className="kpi tile-kpi" role="figure" aria-label={`${caption(d, y)}: ${value === null ? 'no value' : number(d, y)(value)}`}>
+    <div className="kpi tile-kpi" role="figure" aria-label={`${caption(d, y)}: ${value === null ? 'no value' : number(d, y)(value)}${met === null ? '' : `, ${met ? 'meets' : 'misses'} its ${target}`}`}>
       <div className="kpi-label">{caption(d, y)}</div>
       <div className="kpi-value">{value === null ? '–' : number(d, y)(value)}</div>
+      {met !== null && <div className={'kpi-target ' + (met ? 'good' : 'bad')}><span aria-hidden>{met ? '✓' : '✗'}</span> {met ? 'On target' : 'Not yet on target'} <span className="muted">· {target}</span></div>}
       {change !== null && (
-        <div className={'kpi-delta ' + (flat ? '' : change > 0 ? 'up' : 'down')}>
+        <div className={'kpi-delta ' + (flat ? '' : lower ? (change < 0 ? 'good' : 'bad') : change > 0 ? 'up' : 'down')}>
           <span aria-hidden>{flat ? '■' : change > 0 ? '▲' : '▼'}</span>{' '}
           {points ? `${flat ? '±' : change > 0 ? '+' : '−'}${Math.abs(change * 100).toFixed(1)} pts` : fmtDelta(change)}
           {' '}<span className="muted">vs {priorAt}</span>

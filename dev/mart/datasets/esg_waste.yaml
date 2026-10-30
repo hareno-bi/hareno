@@ -1,0 +1,30 @@
+# ESG report demo (mock data): waste by month, stream and what became of it, in tonnes.
+name: esg_waste
+connection: mart
+timezone: Asia/Hong_Kong
+date: period
+root: waste
+tables:
+  waste:
+    table: esg.waste_month
+dimensions:
+  period: period
+  fiscal_year: fiscal_year
+  period_month: period.month
+  waste_stream: stream
+  waste_method: method
+hierarchies:
+  time: [fiscal_year, period_month]
+measures:
+  waste: {sum: tonnes}
+  diverted: {sum: diverted_t}
+  recycling_rate: {ratio: [diverted, waste]}
+display:
+  period: {label: Date}
+  fiscal_year: {label: Financial year}
+  period_month: {label: Month}
+  waste_stream: {label: Waste stream}
+  waste_method: {label: Handled by}
+  waste: {label: Waste (t), format: number}
+  diverted: {label: Recycled or composted (t), format: number}
+  recycling_rate: {label: Recycling rate, format: percent}

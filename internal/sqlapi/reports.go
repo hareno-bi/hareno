@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/rosschiu/kiban/sdk"
@@ -55,16 +56,20 @@ type Tile struct {
 	Title  string          `json:"title"`
 	SQL    string          `json:"sql"`
 	Chart  json.RawMessage `json:"chart"`            // the editor's chart settings, kept as given
-	Show   string          `json:"show"`             // "chart", "table" or "matrix"
+	Show   string          `json:"show"`             // "chart", "table", "matrix" or "text"
 	Wide   bool            `json:"wide"`             // the dashboard's full width, or half
 	Page   int             `json:"page,omitempty"`   // which of the pages it is on, from 0
 	Matrix *Matrix         `json:"matrix,omitempty"` // with show "matrix" only (matrix.go)
 	// Dataset, instead of SQL, builds the tile from a governed dataset (datasets.go).
 	Dataset *DatasetQuery `json:"dataset,omitempty"`
+	// Text is a text tile's words (show "text"), with no query: headings, paragraphs and lists
+	// between the charts, as a report reads. The browser formats it (a subset of Markdown).
+	Text string `json:"text,omitempty"`
 }
 
 const (
-	maxTiles = 24
+	maxTiles = 48
+	maxText  = 20000 // characters in a text tile
 	maxPages = 10
 )
 
@@ -86,7 +91,13 @@ func (d Draft) valid() bool {
 		}
 	}
 	for _, t := range d.Tiles {
-		if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) ||
+		if t.Show == "text" {
+			if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || t.SQL != "" || t.Dataset != nil || t.Matrix != nil || strings.TrimSpace(t.Text) == "" || utf8.RuneCountInString(t.Text) > maxText || len(t.Title) > 200 {
+				return false
+			}
+			continue
+		}
+		if t.Page < 0 || t.Page >= max(len(d.Pages), 1) || (t.SQL == "") == (t.Dataset == nil) || (t.Dataset != nil && !t.Dataset.valid()) || len(t.Title) > 200 || len(t.Chart) > 16<<10 || !slices.Contains([]string{"chart", "table", "matrix"}, t.Show) || t.Text != "" ||
 			(len(t.Chart) > 0 && t.Chart[0] != '{' && string(t.Chart) != "null") ||
 			(t.Show == "matrix") != (t.Matrix != nil) || (t.Matrix != nil && !t.Matrix.valid(t.Dataset != nil)) {
 			return false
@@ -420,6 +431,9 @@ func (h *Handler) PublishReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, t := range rep.Draft.Tiles {
+		if t.Show == "text" {
+			continue
+		}
 		sql, args, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, t.Matrix)
 		if err == nil {
 			_, err = h.exec(ctx, sub, rep, scope, sql, args...)
@@ -523,7 +537,7 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		if t.Dataset != nil && h.Datasets != nil && h.Datasets.ByName[t.Dataset.Dataset] != nil && h.Datasets.ByName[t.Dataset.Dataset].Date != "" {
 			datable = true // on any page: the date range is the dashboard's
 		}
-		if t.Page != req.Page {
+		if t.Page != req.Page || t.Show == "text" {
 			continue
 		}
 		base, _, _, _, err := h.tileQuery(ctx, rep.Connection, t, nil, nil, nil, nil)
@@ -562,9 +576,9 @@ func (h *Handler) RunReport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.Log.Info("report viewed", "user", sub, "report", rep.ID, "revision", *rep.Published, "data", data, "scope", scope, "filters", req.Filters, "dates", req.Dates, "drill", req.Drill, "page", req.Page)
-	shown := make([]*tileResult, len(tiles)) // null for the other pages' tiles
+	shown := make([]*tileResult, len(tiles)) // null for the other pages' tiles, and text tiles
 	for i := range tiles {
-		if body.Tiles[i].Page == req.Page {
+		if body.Tiles[i].Page == req.Page && body.Tiles[i].Show != "text" {
 			shown[i] = &tiles[i]
 		}
 	}

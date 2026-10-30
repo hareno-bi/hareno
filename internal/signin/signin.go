@@ -43,6 +43,7 @@ type Signin struct {
 	Logout string        // Kiban's end-session URL, as the browser reaches it
 	Home   string        // Hareno's public address, where the browser goes after login and logout
 	Demo   []Account     // dev and test stacks only: accounts shown on the sign-in page, passwords included
+	Links  []Link        // dev and demo stacks only: dashboards in the menu
 
 	mu       sync.Mutex
 	sessions map[string]*session // ponytail: in memory, so a restart signs everyone out and replicas do not share; move to Valkey with R1-5's cache
@@ -61,6 +62,13 @@ type Account struct {
 	ShareData bool     `json:"shareData" yaml:"share_data"` // may share dashboards showing their data
 	Export    bool     `json:"export" yaml:"export"`        // may download CSV
 	Datasets  bool     `json:"datasets" yaml:"datasets"`    // may build dashboards from datasets (without SQL)
+}
+
+// Link is a dashboard in the menu of a dev or demo stack, found by its title among those the
+// viewer may see (e.g. "ESG report" for the ESG report demo).
+type Link struct {
+	Label string `json:"label" yaml:"label"`
+	Title string `json:"title" yaml:"title"`
 }
 
 type session struct {
@@ -178,10 +186,11 @@ func (s *Signin) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Signin) Me(w http.ResponseWriter, r *http.Request) {
 	var me struct {
-		Name *string   `json:"name"` // null when signed out: not an error, so the browser logs none
-		Demo []Account `json:"demo,omitempty"`
+		Name  *string   `json:"name"` // null when signed out: not an error, so the browser logs none
+		Demo  []Account `json:"demo,omitempty"`
+		Links []Link    `json:"links,omitempty"`
 	}
-	me.Demo = s.Demo
+	me.Demo, me.Links = s.Demo, s.Links
 	if _, sess := s.lookup(r); sess != nil {
 		me.Name = &sess.name
 	}

@@ -10,6 +10,7 @@ services:
     volumes:
       - ./dev/mart/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - ./dev/mart/rls.sql:/docker-entrypoint-initdb.d/rls.sql:ro
+      - ./dev/mart/esg.sql:/docker-entrypoint-initdb.d/z-esg.sql:ro  # ESG report demo data, own schema
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-d", "mart"]
       interval: 2s

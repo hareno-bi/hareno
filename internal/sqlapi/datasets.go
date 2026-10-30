@@ -1,6 +1,7 @@
 package sqlapi
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -269,8 +270,13 @@ func unwrap(c compiler.Result, tz string, dims int) string {
 		}
 		def = append(def, id+" "+pg)
 		expr := "hareno_r." + id
-		if frame, _ := c.Types[i]["timeframe"].(string); pg == "timestamptz" && timeFormats[frame] != "" {
+		frame, _ := c.Types[i]["timeframe"].(string)
+		switch {
+		case pg == "timestamptz" && timeFormats[frame] != "":
 			expr = fmt.Sprintf("to_char(%s AT TIME ZONE '%s', '%s')", expr, strings.ReplaceAll(tz, "'", "''"), timeFormats[frame])
+		case pg == "date":
+			// a date has no time zone: its bucket, or the day itself, as the same labels
+			expr = fmt.Sprintf("to_char(%s, '%s')", expr, cmp.Or(timeFormats[frame], timeFormats["day"]))
 		}
 		sel = append(sel, expr+" AS "+id)
 		if i < dims {

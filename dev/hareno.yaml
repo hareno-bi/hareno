@@ -71,6 +71,9 @@ signin:                            # as the browser reaches them, through the de
         - Another company
         - Tests the wall between companies
         - Can never see ALPHA dashboards, even if someone tries to share
+  demo_links:                      # dashboards in the menu, by title (the ESG report demo). Never in production.
+    - label: ESG report
+      title: HSITP Sustainability Report FY2025/26 (mock data)
   demo_data:                       # the sample data table on the sign-in page. Never in production.
     connection: mart
     sql: |
@@ -91,6 +94,14 @@ compiler: http://127.0.0.1:55436
 datasets:
   - dev/mart/datasets/sales.yaml
   - dev/mart/datasets/customers.yaml
+  - dev/mart/datasets/esg_utilities.yaml
+  - dev/mart/datasets/esg_emissions.yaml
+  - dev/mart/datasets/esg_waste.yaml
+  - dev/mart/datasets/esg_people.yaml
+  - dev/mart/datasets/esg_safety.yaml
+  - dev/mart/datasets/esg_tenants.yaml
+  - dev/mart/datasets/esg_community.yaml
+  - dev/mart/datasets/esg_procurement.yaml
 connections:
   mart:
     company: ALPHA                 # Kiban company code that owns it

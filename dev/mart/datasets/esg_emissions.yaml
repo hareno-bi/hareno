@@ -1,0 +1,34 @@
+# ESG report demo (mock data): greenhouse gas emissions by month, scope and source, in tonnes CO2e.
+name: esg_emissions
+connection: mart
+timezone: Asia/Hong_Kong
+date: period
+root: emissions
+tables:
+  emissions:
+    table: esg.emission_month
+  buildings:
+    table: esg.building
+    primary_key: building_id
+joins:
+  - {name: b, to: buildings, kind: one, from_key: building_id}
+dimensions:
+  period: period
+  fiscal_year: fiscal_year
+  period_month: period.month
+  ghg_scope: ghg_scope
+  emission_source: emission_source
+  building: b.building
+hierarchies:
+  time: [fiscal_year, period_month]
+  sources: [ghg_scope, emission_source]
+measures:
+  emissions: {sum: tco2e}
+display:
+  period: {label: Date}
+  fiscal_year: {label: Financial year}
+  period_month: {label: Month}
+  ghg_scope: {label: Scope}
+  emission_source: {label: Source}
+  building: {label: Building}
+  emissions: {label: Emissions (t CO2e), format: integer}

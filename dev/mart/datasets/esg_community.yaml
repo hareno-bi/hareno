@@ -1,0 +1,28 @@
+# ESG report demo (mock data): community and talent programme events and the people they reached.
+name: esg_community
+connection: mart
+timezone: Asia/Hong_Kong
+date: event_date
+root: events
+tables:
+  events:
+    table: esg.community_event
+dimensions:
+  event_date: event_date
+  fiscal_year: fiscal_year
+  event_month: event_date.month
+  programme: programme
+hierarchies:
+  time: [fiscal_year, event_month]
+measures:
+  events: {count: "*"}
+  people_reached: {sum: participants}
+  volunteering: {sum: volunteer_hours}
+display:
+  event_date: {label: Date}
+  fiscal_year: {label: Financial year}
+  event_month: {label: Month}
+  programme: {label: Programme}
+  events: {label: Events, format: integer}
+  people_reached: {label: Participants, format: integer}
+  volunteering: {label: Volunteer hours, format: integer}

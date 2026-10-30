@@ -50,7 +50,7 @@ curl http://127.0.0.1:55453/api/sql -H "Authorization: Bearer $TOKEN" \
 
 `GET /api/connections` lists the connections the user may build dashboards on, and those they may query with SQL. `GET /api/datasets` lists the datasets they may build from (`dev/mart/datasets`, listed under `datasets:` in `dev/hareno.yaml`).
 
-The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). Neither belongs in a production configuration.
+The sign-in page of the dev and demo stacks lists the test accounts and their access (`signin.demo_accounts`), and all the sample data (`signin.demo_data`, served at `GET /api/demo-data` without sign-in). The menu can link to published dashboards by title (`signin.demo_links`, e.g. "ESG report"); each opens for those it is shared with. None of these belongs in a production configuration.
 
 Saved reports are dashboards: a title and tiles, each its own SQL query shown as a chart or a table. They are under `/api/reports` (`internal/sqlapi/reports.go` lists the routes). Their rules:
 - **Changing a report** (save, publish) needs the report's `editor` relation in Kiban, plus `sql_user` or `dataset_user` on its connection. Adding or changing SQL needs `sql_user`.
@@ -112,4 +112,8 @@ A published dashboard can be shown inside another site, such as a client's repor
 - **Same site.** Hareno's session cookie is `SameSite=Lax`, so the embedding site and Hareno must share a registrable domain (e.g. `reports.example.com` and `hareno.example.com`); so must Kiban's login pages for the silent sign-in. Browsers block the cookies of a frame from another site. If they do, the frame says so and links to the dashboard in Hareno.
 - **Height.** The frame posts `{ type: 'hareno:height', height }` to the host page whenever its content changes size; the host sets the frame's height, checking the message's origin first.
 - **Test host:** `http://$HARENO_PUBLIC_HOST:55452/?d=<dashboard id>` (`dev/demo/embed-host/index.html`) shows a dashboard as a client's site would.
+
+## Print or PDF
+
+"Print or PDF" on a published dashboard opens `#/print/<dashboard id>`: every page in turn, laid out at the width of an A4 page inside its margins, in the light theme, with the filters and date range it was opened with (the same `filter.<column>=` and `dates=` options as an embed). Charts are drawn without animation and tables show every row, so the browser's Print, or Save as PDF, gives the whole report. Each dashboard page starts a new sheet.
 
